@@ -118,10 +118,24 @@
 </head>
 <body>
 
-<div id="loginScreen" class="login-wrap">
+<div id="authScreen" class="login-wrap">
   <div class="login-card">
     <h2>AGRIGIS · Cadena de Valor</h2>
-    <p class="sub">Ingresa a tu predio o empresa</p>
+    <p class="sub">Ingresa con la cuenta que te compartieron</p>
+    <label>Correo electrónico</label>
+    <input type="email" id="authEmail" placeholder="tucorreo@ejemplo.com">
+    <label>Contraseña</label>
+    <input type="password" id="authPassword" placeholder="••••••••">
+    <div id="authError" style="display:none; color:var(--red-600); font-size:12px; margin-bottom:10px;"></div>
+    <button class="primary" id="btnAuthLogin" style="width:100%;">Entrar</button>
+    <p style="font-size:11px; color:var(--gray-500); margin-top:10px;">El acceso es solo por invitación. Si no tienes cuenta, contacta al administrador.</p>
+  </div>
+</div>
+
+<div id="loginScreen" class="login-wrap" style="display:none;">
+  <div class="login-card">
+    <h2>Completa tu perfil</h2>
+    <p class="sub">Solo la primera vez que ingresas</p>
     <label>Nombre de usuario</label>
     <input type="text" id="loginNombre" placeholder="Ej. Esteban Anaya">
     <label>DNI</label>
@@ -131,8 +145,8 @@
     <label>Área del predio (ha) — opcional</label>
     <input type="text" id="loginArea" placeholder="Ej. 3.4635">
     <div id="prediosListWrap"></div>
-    <button class="primary" id="btnLogin" style="width:100%;">Entrar</button>
-    <p style="font-size:11px; color:var(--gray-500); margin-top:10px;">No es una clave de seguridad, solo organiza tus datos.</p>
+    <button class="primary" id="btnLogin" style="width:100%;">Guardar y continuar</button>
+    <p style="font-size:11px; color:var(--gray-500); margin-top:10px;">Esto identifica tus registros dentro de tu cuenta.</p>
   </div>
 </div>
 
@@ -143,10 +157,11 @@
     <div class="sub" id="predioSub">Cargando…</div>
   </div>
   <div class="predio-bar">
-    <button class="ghost-light" id="btnCambiarPredio">Cambiar de predio</button>
+    <span id="syncStatus" style="font-size:11px; color:#cfe3d2;"></span>
     <button class="ghost-light" id="btnBackup">Respaldo JSON</button>
     <button class="ghost-light" id="btnRestore">Importar JSON</button>
     <input type="file" id="fileRestore" accept="application/json" style="display:none;">
+    <button class="ghost-light" id="btnLogout">Cerrar sesión</button>
   </div>
 </header>
 <div class="area-bar" id="areaBar"></div>
@@ -160,6 +175,7 @@
 <button class="voice-btn" id="voiceBtn" title="Asistente de voz">&#127908;</button>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -464,6 +480,141 @@ let currentArea = "campo";
 let currentModuleId = "inicio";
 let currentUserName = "";
 
+/* ================= Supabase: conexión y sincronización ================= */
+const SUPABASE_URL = "https://ldsencyeydodpgtmddji.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_OQd40jQcb-4OIryN8IaKHQ_k9GCdejW";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let sbUser = null; // usuario autenticado actual
+let syncQueueTimer = null;
+
+function setSyncStatus(text){
+  const el = document.getElementById("syncStatus");
+  if(el) el.textContent = text;
+}
+
+/* Envía (o actualiza) una clave de localStorage hacia Supabase.
+   Se ejecuta en segundo plano; si no hay internet, simplemente falla
+   en silencio y los datos quedan a salvo en el celular. */
+async function syncPush(key, rawValue){
+  if(!sbUser) return;
+  if(!key || key.indexOf("agrigis_")!==0) return; // solo sincronizamos datos de la app
+  try{
+    setSyncStatus("Sincronizando…");
+    const { error } = await sb.from("agrigis_kv").upsert({
+      user_id: sbUser.id,
+      predio: getCurrentPredio() || "SIN-PREDIO",
+      data_key: key,
+      value: rawValue,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,data_key" });
+    setSyncStatus(error ? "Sin conexión (guardado solo en el celular)" : "Sincronizado ✓");
+  }catch(e){
+    setSyncStatus("Sin conexión (guardado solo en el celular)");
+  }
+}
+
+/* Trae todos los datos del usuario autenticado desde Supabase
+   y los coloca en localStorage ANTES de dibujar la app, para que
+   sirvan tanto si entra desde el celular como desde la PC. */
+async function syncPullAll(){
+  if(!sbUser) return;
+  try{
+    setSyncStatus("Descargando tus datos…");
+    const { data, error } = await sb.from("agrigis_kv").select("data_key, value").eq("user_id", sbUser.id);
+    if(!error && data){
+      data.forEach(row=>{
+        try{
+          const toStore = (typeof row.value === "string") ? row.value : JSON.stringify(row.value);
+          localStorage.setItem(row.data_key, toStore);
+        }catch(e){}
+      });
+    }
+    setSyncStatus("Sincronizado ✓");
+  }catch(e){
+    setSyncStatus("Sin conexión (usando datos guardados en el celular)");
+  }
+}
+
+/* Envuelve localStorage.setItem para que CADA guardado local
+   (registros, fotos, documentos, sectores, waypoints, etc.)
+   también se intente enviar a Supabase automáticamente. */
+(function wrapLocalStorage(){
+  const originalSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(key, value){
+    originalSetItem(key, value);
+    syncPush(key, value);
+  };
+})();
+
+/* ---- Perfil del agricultor en Supabase (nombre, dni, predio) ---- */
+async function getCloudProfile(){
+  if(!sbUser) return null;
+  const { data, error } = await sb.from("agrigis_perfiles").select("*").eq("user_id", sbUser.id).maybeSingle();
+  if(error) return null;
+  return data;
+}
+async function saveCloudProfile(nombre, dni, predio, area_ha){
+  if(!sbUser) return;
+  await sb.from("agrigis_perfiles").upsert({
+    user_id: sbUser.id, nombre, dni, predio, area_ha
+  }, { onConflict: "user_id" });
+}
+
+/* ---- Flujo de autenticación ---- */
+async function iniciarSesionUI(){
+  document.getElementById("authScreen").style.display = "none";
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("appScreen").style.display = "none";
+  await syncPullAll();
+  const perfil = await getCloudProfile();
+  if(perfil && perfil.predio){
+    currentUserName = perfil.nombre || "";
+    localStorage.setItem("agrigis_last_user", currentUserName);
+    let predios = getPredios();
+    if(!predios.includes(perfil.predio)){ predios.push(perfil.predio); setPredios(predios); }
+    setCurrentPredio(perfil.predio);
+    setPredioProfile(perfil.predio, {nombre: perfil.nombre, dni: perfil.dni, area: perfil.area_ha});
+    if(perfil.predio.toUpperCase().replace(/[^A-Z0-9]/g,"")==="FUNDOANAYA"){ seedFundoAnayaIfNeeded(); }
+    document.getElementById("appScreen").style.display = "block";
+    currentArea="campo"; currentModuleId="inicio";
+    renderAll();
+  } else {
+    document.getElementById("loginScreen").style.display = "flex";
+    refreshPrediosListLogin();
+  }
+}
+
+document.getElementById("btnAuthLogin").onclick = async ()=>{
+  const email = document.getElementById("authEmail").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const errEl = document.getElementById("authError");
+  errEl.style.display = "none";
+  if(!email || !password){ errEl.textContent = "Ingresa tu correo y contraseña."; errEl.style.display="block"; return; }
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){ errEl.textContent = "Correo o contraseña incorrectos."; errEl.style.display="block"; return; }
+  sbUser = data.user;
+  await iniciarSesionUI();
+};
+
+document.getElementById("btnLogout").onclick = async ()=>{
+  await sb.auth.signOut();
+  sbUser = null;
+  document.getElementById("appScreen").style.display = "none";
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("authScreen").style.display = "flex";
+  document.getElementById("authEmail").value = "";
+  document.getElementById("authPassword").value = "";
+};
+
+/* Al cargar la página: si ya había una sesión activa, entra directo */
+(async function checkExistingSession(){
+  const { data } = await sb.auth.getSession();
+  if(data && data.session && data.session.user){
+    sbUser = data.session.user;
+    await iniciarSesionUI();
+  }
+})();
+
 /* ---- Verificacion de almacenamiento disponible ---- */
 (function checkStorage(){
   try{
@@ -522,7 +673,7 @@ function refreshPrediosListLogin(){
 }
 refreshPrediosListLogin();
 
-document.getElementById("btnLogin").onclick = ()=>{
+document.getElementById("btnLogin").onclick = async ()=>{
   const nombre = document.getElementById("loginNombre").value.trim();
   const dni = document.getElementById("loginDni").value.trim();
   const predio = document.getElementById("loginPredio").value.trim();
@@ -534,17 +685,12 @@ document.getElementById("btnLogin").onclick = ()=>{
   if(!predios.includes(predio)){ predios.push(predio); setPredios(predios); }
   setCurrentPredio(predio);
   setPredioProfile(predio, {nombre, dni, area:area_ha});
+  await saveCloudProfile(nombre, dni, predio, area_ha);
   if(predio.toUpperCase().replace(/[^A-Z0-9]/g,"")==="FUNDOANAYA"){ seedFundoAnayaIfNeeded(); }
   document.getElementById("loginScreen").style.display="none";
   document.getElementById("appScreen").style.display="block";
   currentArea="campo"; currentModuleId="inicio";
   renderAll();
-};
-
-document.getElementById("btnCambiarPredio").onclick = ()=>{
-  document.getElementById("appScreen").style.display="none";
-  document.getElementById("loginScreen").style.display="flex";
-  refreshPrediosListLogin();
 };
 
 function seedFundoAnayaIfNeeded(){
