@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGRIGIS · Panel de Administrador</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --green-700:#1f5c3f; --green-600:#2a7a53; --green-500:#3a9a6a;
+    --gray-900:#14201a; --gray-700:#3a4a42; --gray-500:#6b7c72; --gray-200:#e6ede9; --gray-100:#f4f8f6;
+    --red-600:#b3402f; --amber-600:#b8842a; --white:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; background:var(--gray-100); color:var(--gray-900);}
+  header{background:var(--green-700); color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;}
+  header h1{font-size:18px; margin:0;}
+  header .sub{font-size:12px; opacity:.85;}
+  #btnLogoutAdmin{background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.4); color:#fff; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px;}
+  #loginWrap{display:flex; align-items:center; justify-content:center; min-height:90vh;}
+  .card{background:#fff; border-radius:12px; padding:26px; box-shadow:0 2px 10px rgba(0,0,0,.08); width:100%; max-width:380px;}
+  .card h2{margin-top:0; font-size:20px;}
+  .card label{display:block; font-size:12px; font-weight:600; margin:12px 0 4px;}
+  .card input{width:100%; padding:10px; border:1px solid #d3dcd6; border-radius:8px; font-size:14px;}
+  .card button{margin-top:16px; width:100%; padding:11px; background:var(--green-600); color:#fff; border:none; border-radius:8px; font-size:14px; cursor:pointer;}
+  #errMsg{color:var(--red-600); font-size:12px; margin-top:8px; display:none;}
+  main{padding:18px; max-width:1300px; margin:0 auto;}
+  .tabs{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;}
+  .tab-btn{padding:9px 16px; border-radius:20px; border:1px solid var(--gray-200); background:#fff; cursor:pointer; font-size:13px; font-weight:600; color:var(--gray-700);}
+  .tab-btn.active{background:var(--green-600); color:#fff; border-color:var(--green-600);}
+  .cards-row{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:20px;}
+  .stat-card{background:#fff; border-radius:10px; padding:16px; box-shadow:0 1px 4px rgba(0,0,0,.06);}
+  .stat-card .num{font-size:26px; font-weight:700; color:var(--green-700);}
+  .stat-card .lbl{font-size:12px; color:var(--gray-500); margin-top:2px;}
+  section{background:#fff; border-radius:10px; padding:16px; margin-bottom:18px; box-shadow:0 1px 4px rgba(0,0,0,.06);}
+  section h3{margin-top:0; font-size:15px; display:flex; align-items:center; justify-content:space-between;}
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  th,td{padding:7px 9px; border-bottom:1px solid var(--gray-200); text-align:left; white-space:nowrap;}
+  th{background:var(--gray-100); position:sticky; top:0;}
+  .tbl-wrap{overflow-x:auto; max-height:460px; overflow-y:auto;}
+  .badge{padding:3px 9px; border-radius:12px; font-size:11px; font-weight:700; color:#fff; display:inline-block;}
+  .badge.ok{background:var(--green-500);}
+  .badge.warn{background:var(--amber-600);}
+  .badge.bad{background:var(--red-600);}
+  .btn-mini{padding:6px 12px; font-size:12px; border-radius:6px; border:1px solid var(--green-600); background:#fff; color:var(--green-700); cursor:pointer; font-weight:600;}
+  .btn-mini:hover{background:var(--green-600); color:#fff;}
+  select{padding:7px 10px; border-radius:6px; border:1px solid var(--gray-200); font-size:12.5px;}
+  .empty{color:var(--gray-500); font-size:13px; padding:16px; text-align:center;}
+  #statusMsg{font-size:12px; color:var(--gray-500); margin-bottom:10px;}
+</style>
+</head>
+<body>
+
+<div id="loginWrap">
+  <div class="card">
+    <h2>AGRIGIS · Panel Admin</h2>
+    <p style="font-size:12px;color:var(--gray-500);">Solo la cuenta administradora tiene acceso completo</p>
+    <label>Correo</label>
+    <input type="email" id="admEmail" placeholder="tucorreo@ejemplo.com">
+    <label>Contraseña</label>
+    <input type="password" id="admPassword" placeholder="••••••••">
+    <div id="errMsg"></div>
+    <button id="btnAdmLogin">Entrar al panel</button>
+  </div>
+</div>
+
+<div id="dashboardWrap" style="display:none;">
+  <header>
+    <div>
+      <h1>AGRIGIS · Panel de Administrador</h1>
+      <div class="sub" id="adminWho"></div>
+    </div>
+    <button id="btnLogoutAdmin">Cerrar sesión</button>
+  </header>
+  <main>
+    <div id="statusMsg">Cargando datos…</div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="resumen">Resumen general</button>
+      <button class="tab-btn" data-tab="agritec">AgriTec · Técnicos</button>
+      <button class="tab-btn" data-tab="modulos">Por módulo (Finca / Primario / Transformación)</button>
+      <button class="tab-btn" data-tab="cumplimiento">Cumplimiento por predio</button>
+    </div>
+    <div id="tabContent"></div>
+  </main>
+</div>
+
+</body>
+<script>
+/* ===== Metadatos de módulos (copiados de la app principal) ===== */
+const CULTIVOS = ["CACAO","MARACUYÁ","PAPAYA","CÍTRICOS","COCO","CAMU CAMU","OTROS / INTEGRAL"];
+const NIVEL_DANO = ["BAJO","MODERADO","ALTO"];
+const CAMPO_MODULES = [
+ {id:"suelo", group:"Suelo y nutrición", name:"Análisis de suelo / sustrato",
+  desc:"Parámetros fisicoquímicos del suelo o sustrato por cultivo y sector.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"cultivo",l:"Cultivo",t:"select",o:CULTIVOS},
+    {k:"sector",l:"Sector / código",t:"text"},{k:"temperatura",l:"Temperatura °C",t:"number"},
+    {k:"humedad",l:"Humedad %",t:"number"},{k:"conductividad",l:"Conductividad (EC)",t:"number"},
+    {k:"ph",l:"pH",t:"number"},{k:"nitrogeno",l:"Nitrógeno (N)",t:"number"},
+    {k:"fosforo",l:"Fósforo (P)",t:"number"},{k:"potasio",l:"Potasio (K)",t:"number"},
+    {k:"fertilidad",l:"Fertilidad",t:"text"},{k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"prep_fert", group:"Suelo y nutrición", name:"Preparación de fertilizantes",
+  desc:"Orgánicos, minerales, químicos y biológicos preparados antes de aplicación.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"producto",l:"Nombre y datos del producto",t:"text",full:true},
+    {k:"uso_para",l:"Uso del producto para",t:"text"},{k:"entidad",l:"Entidad / procedencia",t:"text"},
+    {k:"cultivos",l:"Cultivos",t:"select",o:CULTIVOS},{k:"tiempo",l:"Tiempo",t:"text"},
+    {k:"metodo",l:"Método",t:"text"},{k:"elaborador",l:"Nombre del elaborador",t:"text"},
+    {k:"cantidad",l:"Cantidad preparada",t:"text"}
+  ]},
+ {id:"uso_fert", group:"Suelo y nutrición", name:"Uso de fertilizantes",
+  desc:"Aplicación en campo: dosis, método, sector y responsable.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"producto",l:"Nombre y datos del producto",t:"text",full:true},
+    {k:"accion",l:"Acción del producto",t:"text"},{k:"sector",l:"Sector",t:"text"},
+    {k:"cultivo",l:"Cultivo",t:"select",o:CULTIVOS},{k:"temporada",l:"Temporada",t:"text"},
+    {k:"metodo",l:"Método",t:"text"},{k:"materiales",l:"Materiales utilizados",t:"text"},
+    {k:"elaborador",l:"Nombre del elaborador",t:"text"},{k:"dosis",l:"Dosis kg/p - kg/ha",t:"text"}
+  ]},
+ {id:"desmalezado", group:"Manejo agronómico", name:"Desmalezado",
+  desc:"Control cultural/mecánico de malezas por sector.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"cultivo",l:"Cultivo",t:"select",o:CULTIVOS},
+    {k:"sector",l:"Sector / código",t:"text"},{k:"origen",l:"Origen (semilla/injerto)",t:"text"},
+    {k:"edad",l:"Edad (años)",t:"number"},{k:"distancia",l:"Distancia (m)",t:"text"},
+    {k:"nivel_dano",l:"Nivel de daño",t:"select",o:NIVEL_DANO},{k:"medida_control",l:"Medida de control",t:"text"},
+    {k:"herramientas",l:"Herramientas",t:"text"},{k:"mantenimiento",l:"Mantenimiento/limpieza",t:"text"},
+    {k:"charla",l:"Charla SSOMA",t:"text"},{k:"responsable",l:"Responsable",t:"text"},
+    {k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"poda", group:"Manejo agronómico", name:"Poda y sombra",
+  desc:"Manejo de poda y control de sombra del cultivo.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"cultivo",l:"Cultivo",t:"select",o:CULTIVOS},
+    {k:"sector",l:"Sector / código",t:"text"},{k:"edad",l:"Edad (años)",t:"number"},
+    {k:"distancia",l:"Distancia (m)",t:"text"},{k:"nivel_dano",l:"Nivel de daño",t:"select",o:NIVEL_DANO},
+    {k:"medida_control",l:"Medida de control",t:"text"},{k:"herramientas",l:"Herramientas",t:"text"},
+    {k:"tipo_poda",l:"Tipo de poda",t:"text"},{k:"limpieza",l:"Limpieza campo/herramientas",t:"text"},
+    {k:"charla",l:"Charla SSOMA",t:"text"},{k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"plagas", group:"Manejo agronómico", name:"Plagas y enfermedades (MIP)",
+  desc:"Manejo integrado de plagas: producto fitosanitario, dosis y período de carencia si se usa insumo.", status:"warn",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"cultivo",l:"Cultivo",t:"select",o:CULTIVOS},
+    {k:"sector",l:"Sector / código",t:"text"},{k:"nivel_dano",l:"Nivel de daño",t:"select",o:NIVEL_DANO},
+    {k:"tipo_plaga",l:"Tipo de plaga / enfermedad",t:"text"},{k:"medida_control",l:"Medida de control",t:"text"},
+    {k:"insumos",l:"Insumos / herramientas",t:"text"},{k:"limpieza",l:"Limpieza campo / colecta",t:"text"},
+    {k:"producto_fito",l:"Producto fitosanitario (si aplica)",t:"text"},
+    {k:"ingrediente_activo",l:"Ingrediente activo",t:"text"},
+    {k:"dosis",l:"Dosis aplicada",t:"text"},{k:"periodo_carencia",l:"Período de carencia (días)",t:"number"},
+    {k:"responsable",l:"Responsable",t:"text"},{k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"cosecha", group:"Cosecha y comercialización", name:"Cosecha, desgranado y envío",
+  desc:"Registro de cosecha, transporte y venta del producto.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"cultivo",l:"Cultivo cosechado",t:"select",o:CULTIVOS},
+    {k:"variedad",l:"Variedad",t:"text"},{k:"sector",l:"Sector",t:"text"},{k:"campana",l:"Campaña",t:"text"},
+    {k:"material",l:"Material de cosecha",t:"text"},{k:"resp_transporte",l:"Responsable de transporte",t:"text"},
+    {k:"destino",l:"Empresa / acopio / consumo / venta",t:"text"},{k:"peso_baba",l:"Cantidad/kg baba",t:"number"},
+    {k:"kg_seco",l:"Kg seco",t:"number"},{k:"costo",l:"Costo total de venta S/.",t:"number"},
+    {k:"boleta",l:"N° boleta / guía de remisión",t:"text"}
+  ]},
+ {id:"trazabilidad", group:"Cosecha y comercialización", name:"Trazabilidad maestro",
+  desc:"Enlaza parcela/lote con las actividades y el destino final del producto.", status:"miss",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"sector",l:"Parcela / sector",t:"text"},
+    {k:"cultivo",l:"Cultivo",t:"select",o:CULTIVOS},{k:"lote",l:"Código de lote",t:"text"},
+    {k:"actividad_vinculada",l:"Actividad vinculada",t:"text"},{k:"cantidad_kg",l:"Cantidad (kg)",t:"number"},
+    {k:"destino",l:"Destino (venta/acopio/consumo)",t:"text"},{k:"documento",l:"N° documento",t:"text"},
+    {k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"limpieza_equipos", group:"Infraestructura e insumos", name:"Limpieza y mantenimiento de herramientas/equipos",
+  desc:"Mantenimiento preventivo y correctivo de herramientas y equipos.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"herramienta",l:"Nombre de la herramienta/equipo",t:"text"},
+    {k:"danos",l:"Daños identificados / limpieza rutinaria",t:"text",full:true},
+    {k:"entidad_resp",l:"Entidad y/o responsable",t:"text"},{k:"repuestos",l:"Repuestos / arreglo",t:"text"},
+    {k:"costo",l:"Costo total",t:"number"}
+  ]},
+ {id:"limpieza_infra", group:"Infraestructura e insumos", name:"Limpieza y mantenimiento de infraestructura",
+  desc:"Áreas, materiales de limpieza y actividad realizada.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"area",l:"Área",t:"text"},
+    {k:"materiales",l:"Materiales de limpieza",t:"text"},{k:"actividad",l:"Actividad realizada",t:"text",full:true},
+    {k:"responsable",l:"Nombre del responsable",t:"text"},{k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"compras", group:"Infraestructura e insumos", name:"Compra e inventario de insumos",
+  desc:"Compra de materiales/herramientas, con lote y vencimiento.", status:"warn",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"producto",l:"Nombre y datos del producto",t:"text",full:true},
+    {k:"uso",l:"Uso del producto",t:"text"},{k:"entidad",l:"Entidad / proveedor",t:"text"},
+    {k:"boleta",l:"N° boleta / guía",t:"text"},{k:"resp_compra",l:"Responsable de compra",t:"text"},
+    {k:"costo_unit",l:"Costo unitario / kg",t:"number"},{k:"costo_total",l:"Costo total S/.",t:"number"},
+    {k:"lote",l:"Lote",t:"text"},{k:"vencimiento",l:"Fecha de vencimiento",t:"date"},
+    {k:"stock",l:"Cantidad en stock",t:"number"}
+  ]},
+ {id:"agua", group:"Ambiente y recursos", name:"Agua de riego",
+  desc:"Calidad y consumo del agua usada en riego y pos-cosecha.", status:"miss",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"fuente",l:"Fuente de agua",t:"text"},
+    {k:"punto",l:"Punto de muestreo",t:"text"},{k:"uso",l:"Uso (riego/pos-cosecha/consumo)",t:"text"},
+    {k:"ph",l:"pH",t:"number"},{k:"turbidez",l:"Turbidez",t:"text"},
+    {k:"coliformes",l:"Coliformes",t:"text"},{k:"resultado",l:"Resultado / apto",t:"text"},
+    {k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"residuos", group:"Ambiente y recursos", name:"Envases vacíos y residuos",
+  desc:"Manejo de envases vacíos y residuos generados en el predio.", status:"miss",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"tipo",l:"Tipo de residuo",t:"select",o:["Envase vacío de agroquímico","Orgánico","Inorgánico reciclable","Peligroso / otro"]},
+    {k:"producto_origen",l:"Producto de origen",t:"text"},{k:"cantidad",l:"Cantidad",t:"text"},
+    {k:"metodo_disp",l:"Método de disposición",t:"text",full:true},
+    {k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"asistencia", group:"Personal y seguridad", name:"Asistencia y capacitación",
+  desc:"Control de asistencia de personal, visitas y capacitaciones.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"nombres",l:"Apellidos y nombres",t:"text"},
+    {k:"motivo",l:"Motivo",t:"text"},{k:"entidad_cargo",l:"Entidad / cargo",t:"text"},
+    {k:"lugar",l:"Lugar",t:"text"},{k:"dni",l:"DNI",t:"text"},{k:"tema",l:"Tema de capacitación (si aplica)",t:"text"}
+  ]},
+ {id:"seguridad", group:"Personal y seguridad", name:"Seguridad y salud",
+  desc:"Registro de charlas de seguridad y salud ocupacional del personal.", status:"ok",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"tema",l:"Tema / datos generales",t:"text",full:true},
+    {k:"nombres",l:"Apellidos y nombres",t:"text"},{k:"dni",l:"DNI",t:"text"}
+  ]}
+];
+const CAMPO_GROUPS = ["Suelo y nutrición","Manejo agronómico","Cosecha y comercialización","Infraestructura e insumos","Ambiente y recursos","Personal y seguridad"];
+const ALERT_DAYS = {suelo:45, prep_fert:20, uso_fert:20, desmalezado:20, poda:30, plagas:15, cosecha:60,
+  trazabilidad:30, limpieza_equipos:30, limpieza_infra:30, compras:30, agua:30, residuos:30, asistencia:30, seguridad:60};
+
+/* ================= PROCESAMIENTO PRIMARIO (APACOFA) — BPM/POES + NTP 208.040 ================= */
+const PRIMARIO_MODULES = [
+ {id:"pp_recepcion", group:"Recepción y acopio", name:"Recepción de materia prima",
+  desc:"Recepción de baba/mazorca en el centro de acopio, según NTP 208.040.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"productor",l:"Productor / proveedor",t:"text"},
+    {k:"cultivo",l:"Cultivo / variedad",t:"select",o:CULTIVOS},{k:"cantidad_kg",l:"Cantidad recibida (kg)",t:"number"},
+    {k:"grado_madurez",l:"Grado de madurez",t:"text"},{k:"humedad_inicial",l:"Humedad inicial (%)",t:"number"},
+    {k:"lote",l:"Código de lote asignado",t:"text"},{k:"responsable",l:"Responsable",t:"text"},
+    {k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"pp_fermentacion", group:"Beneficio del grano", name:"Fermentación",
+  desc:"Control del proceso de fermentación: sistema, volteos, temperatura y tiempo.", status:"nuevo",
+  fields:[
+    {k:"fecha_inicio",l:"Fecha de inicio",t:"date"},{k:"lote",l:"Lote",t:"text"},
+    {k:"sistema",l:"Sistema (saco/cajón/ruma)",t:"text"},{k:"cantidad_kg",l:"Cantidad (kg)",t:"number"},
+    {k:"temperatura",l:"Temperatura °C",t:"number"},{k:"n_volteos",l:"N° de volteos",t:"number"},
+    {k:"dias_fermentacion",l:"Días de fermentación",t:"number"},{k:"responsable",l:"Responsable",t:"text"},
+    {k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"pp_secado", group:"Beneficio del grano", name:"Secado",
+  desc:"Secado natural o artificial hasta humedad de comercialización (~7%).", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},
+    {k:"metodo",l:"Método (solar/artificial)",t:"text"},{k:"temperatura",l:"Temperatura (si artificial)",t:"number"},
+    {k:"dias_secado",l:"Días de secado",t:"number"},{k:"humedad_final",l:"Humedad final (%)",t:"number"},
+    {k:"responsable",l:"Responsable",t:"text"},{k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"pp_seleccion", group:"Beneficio del grano", name:"Selección y clasificación",
+  desc:"Selección de grano según NTP-ISO 2451, separación de defectuosos.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},{k:"criterio",l:"Criterio de selección",t:"text"},
+    {k:"kg_aceptado",l:"Kg aceptado",t:"number"},{k:"kg_rechazado",l:"Kg rechazado",t:"number"},
+    {k:"destino_rechazo",l:"Destino del rechazo",t:"text"},{k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"pp_almacenamiento", group:"Almacenamiento", name:"Almacenamiento de grano seco",
+  desc:"Condiciones de almacén: humedad, ventilación, control de plagas.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},{k:"ubicacion",l:"Ubicación en almacén",t:"text"},
+    {k:"humedad_ambiente",l:"Humedad ambiente (%)",t:"number"},{k:"control_plagas",l:"Control de plagas realizado",t:"text"},
+    {k:"cantidad_kg",l:"Cantidad almacenada (kg)",t:"number"},{k:"responsable",l:"Responsable",t:"text"},
+    {k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"pp_limpieza", group:"BPM / POES", name:"Limpieza e higiene de planta (POES)",
+  desc:"Procedimientos operativos estandarizados de saneamiento, DS 004-2011-AG.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"area",l:"Área",t:"text"},{k:"actividad",l:"Actividad de limpieza",t:"text",full:true},
+    {k:"producto",l:"Producto de limpieza/desinfección",t:"text"},{k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"pp_plagas_almacen", group:"BPM / POES", name:"Control de plagas en almacén",
+  desc:"Monitoreo y control de plagas en el centro de acopio.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"tipo_plaga",l:"Tipo de plaga detectada",t:"text"},
+    {k:"metodo_control",l:"Método de control",t:"text"},{k:"responsable",l:"Responsable",t:"text"},
+    {k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]}
+];
+const PRIMARIO_GROUPS = ["Recepción y acopio","Beneficio del grano","Almacenamiento","BPM / POES"];
+
+/* ================= TRANSFORMACIÓN Y COMERCIALIZACIÓN (Chocolate Perú SAC) — BPM/HACCP ================= */
+const TRANSFORM_MODULES = [
+ {id:"tr_recepcion", group:"Recepción", name:"Recepción de grano seco",
+  desc:"Ingreso de grano desde el centro de acopio a la planta de transformación.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote_origen",l:"Lote de origen",t:"text"},{k:"proveedor",l:"Proveedor (ej. APACOFA)",t:"text"},
+    {k:"cantidad_kg",l:"Cantidad (kg)",t:"number"},{k:"humedad",l:"Humedad (%)",t:"number"},
+    {k:"calidad",l:"Calidad / calificación",t:"text"},{k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"tr_tostado", group:"Proceso", name:"Tostado",
+  desc:"Control de tiempo y temperatura de tostado del grano.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},{k:"temperatura",l:"Temperatura °C",t:"number"},
+    {k:"tiempo_min",l:"Tiempo (min)",t:"number"},{k:"responsable",l:"Responsable",t:"text"},
+    {k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"tr_molienda", group:"Proceso", name:"Descascarillado y molienda",
+  desc:"Obtención de nibs y molienda a licor de cacao.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},{k:"cantidad_kg",l:"Cantidad procesada (kg)",t:"number"},
+    {k:"responsable",l:"Responsable",t:"text"},{k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]},
+ {id:"tr_conchado", group:"Proceso", name:"Refinado / conchado",
+  desc:"Refinado de partícula y conchado para desarrollo de sabor y textura.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},{k:"tiempo_horas",l:"Tiempo (horas)",t:"number"},
+    {k:"temperatura",l:"Temperatura °C",t:"number"},{k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"tr_temperado", group:"Proceso", name:"Temperado y moldeado",
+  desc:"Cristalización controlada y moldeado del producto.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},{k:"temperatura_temperado",l:"Temperatura de temperado °C",t:"number"},
+    {k:"tipo_producto",l:"Tipo de producto",t:"text"},{k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"tr_envasado", group:"Envasado y despacho", name:"Envasado y etiquetado",
+  desc:"Empaque final y rotulado del producto terminado.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},{k:"producto",l:"Producto",t:"text"},
+    {k:"cantidad_unid",l:"Cantidad (unidades)",t:"number"},{k:"vencimiento",l:"Fecha de vencimiento",t:"date"},
+    {k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"tr_calidad", group:"Calidad y trazabilidad", name:"Control de calidad",
+  desc:"Verificación de parámetros de calidad e inocuidad en cada etapa.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},{k:"parametro",l:"Parámetro evaluado",t:"text"},
+    {k:"resultado",l:"Resultado",t:"text"},{k:"conforme",l:"Conforme",t:"select",o:["Sí","No"]},
+    {k:"responsable",l:"Responsable",t:"text"}
+  ]},
+ {id:"tr_trazabilidad", group:"Calidad y trazabilidad", name:"Trazabilidad y comercialización",
+  desc:"Destino final del lote: cliente, cantidad y documento de venta.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"lote",l:"Lote",t:"text"},{k:"cliente",l:"Cliente / destino",t:"text"},
+    {k:"cantidad",l:"Cantidad",t:"text"},{k:"documento",l:"N° documento",t:"text"},{k:"responsable",l:"Responsable",t:"text"}
+  ]}
+];
+const TRANSFORM_GROUPS = ["Recepción","Proceso","Envasado y despacho","Calidad y trazabilidad"];
+
+/* ================= AGRITEC — control de técnicos de campo (fuera de BPA) ================= */
+const AGRITEC_MODULES = [
+ {id:"at_visita", group:"Visitas técnicas", name:"Registro de visita técnica",
+  desc:"Cada técnico registra su visita desde el campo, con ubicación GPS capturada en el momento.", status:"nuevo",
+  fields:[
+    {k:"fecha",l:"Fecha",t:"date"},{k:"tecnico",l:"Nombre del técnico",t:"text"},{k:"dni_tecnico",l:"DNI del técnico",t:"text"},
+    {k:"agricultor",l:"Agricultor visitado",t:"text"},{k:"predio_visitado",l:"Predio visitado",t:"text"},
+    {k:"actividad",l:"Actividad realizada",t:"textarea",full:true},{k:"hora_inicio",l:"Hora de inicio",t:"text"},
+    {k:"hora_fin",l:"Hora de fin",t:"text"},{k:"gps",l:"Ubicación GPS (lat, lng)",t:"text"},
+    {k:"foto",l:"Fotografía de evidencia",t:"photo"},
+    {k:"obs",l:"Observaciones",t:"textarea",full:true}
+  ]}
+];
+const AGRITEC_GROUPS = ["Visitas técnicas"];
+
+const AREAS = {
+  campo:{label:"FINCA", modules:CAMPO_MODULES, groups:CAMPO_GROUPS, alertDays:{}, hasHistorial:true, hasAgromapa:true, hasDiag:true},
+  primario:{label:"PROCESAMIENTO PRIMARIO", modules:PRIMARIO_MODULES, groups:PRIMARIO_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
+  transformacion:{label:"TRANSFORMACIÓN", modules:TRANSFORM_MODULES, groups:TRANSFORM_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
+  agritec:{label:"AGRITEC", modules:AGRITEC_MODULES, groups:AGRITEC_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, hasGps:true},
+  agriquest:{label:"AGRIQUEST", modules:[], groups:[], alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, isMapTool:true}
+};
+const AREA_ORDER = ["campo","primario","transformacion","agritec","agriquest"];
+
+</script>
+
+/* ================= Conexión Supabase ================= */
+const SUPABASE_URL = "https://ldsencyeydodpgtmddji.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_OQd40jQcb-4OIryN8IaKHQ_k9GCdejW";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let allRows = [];      // filas crudas de agrigis_kv
+let allPerfiles = [];  // filas de agrigis_perfiles
+let parsedRecords = []; // { predio, area, moduleId, record, updated_at }
+let currentTab = "resumen";
+
+function setStatus(t){ document.getElementById("statusMsg").textContent = t; }
+
+/* Parsea data_key = agrigis_<predioSlug>_<areaId>_mod_<moduleId>
+   y separa cada registro individual del array guardado en 'value' */
+function parseAllRows(){
+  parsedRecords = [];
+  const areaIds = Object.keys(AREAS);
+  allRows.forEach(row=>{
+    const key = row.data_key;
+    for(const areaId of areaIds){
+      const marker = "_"+areaId+"_mod_";
+      const idx = key.indexOf(marker);
+      if(idx>-1){
+        const moduleId = key.substring(idx+marker.length);
+        let arr = [];
+        try{ arr = typeof row.value === "string" ? JSON.parse(row.value) : row.value; }catch(e){ arr = []; }
+        if(Array.isArray(arr)){
+          arr.forEach(rec=>{
+            parsedRecords.push({ predio: row.predio, area: areaId, moduleId, record: rec, updated_at: row.updated_at, user_id: row.user_id });
+          });
+        }
+        break;
+      }
+    }
+  });
+}
+
+function moduleInfo(areaId, moduleId){
+  const area = AREAS[areaId];
+  if(!area) return null;
+  return area.modules.find(m=>m.id===moduleId) || null;
+}
+
+function daysAgo(dateStr){
+  if(!dateStr) return null;
+  const d = new Date(dateStr);
+  if(isNaN(d)) return null;
+  return Math.floor((Date.now()-d.getTime())/86400000);
+}
+
+function perfilPorPredio(predio){
+  return allPerfiles.find(p=>p.predio===predio) || null;
+}
+
+/* ================= Carga de datos ================= */
+async function cargarTodo(){
+  setStatus("Cargando datos de todos los usuarios…");
+  const { data: kvData, error: kvErr } = await sb.from("agrigis_kv").select("*");
+  const { data: perfData, error: perfErr } = await sb.from("agrigis_perfiles").select("*");
+  if(kvErr || perfErr){
+    setStatus("No se pudieron cargar los datos. Verifica que tu cuenta tenga permiso de administrador (ver 02_admin_setup.sql).");
+    return false;
+  }
+  allRows = kvData || [];
+  allPerfiles = perfData || [];
+  parseAllRows();
+  setStatus("Datos actualizados · "+new Date().toLocaleString("es-PE"));
+  return true;
+}
+
+/* ================= Exportar a Excel ================= */
+function exportarExcel(filename, rows, headers){
+  const ws = XLSX.utils.json_to_sheet(rows, {header:headers});
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Datos");
+  XLSX.writeFile(wb, filename);
+}
+
+/* ================= TAB: Resumen general ================= */
+function renderResumen(container){
+  const areasVisibles = ["campo","primario","transformacion","agritec"];
+  const cardsHtml = areasVisibles.map(areaId=>{
+    const regs = parsedRecords.filter(r=>r.area===areaId);
+    const predios = new Set(regs.map(r=>r.predio));
+    const ultimos7 = regs.filter(r=> (daysAgo(r.updated_at) ?? 999) <= 7).length;
+    return `<div class="stat-card">
+      <div class="num">${regs.length}</div>
+      <div class="lbl">${AREAS[areaId].label} · registros totales</div>
+      <div style="font-size:11px;color:var(--gray-500);margin-top:6px;">${predios.size} predio(s)/técnico(s) activos · ${ultimos7} en últimos 7 días</div>
+    </div>`;
+  }).join("");
+
+  const totalPredios = new Set(allPerfiles.map(p=>p.predio)).size;
+
+  container.innerHTML = `
+    <div class="cards-row">
+      <div class="stat-card"><div class="num">${totalPredios}</div><div class="lbl">Predios / cuentas registradas</div></div>
+      ${cardsHtml}
+    </div>
+    <section>
+      <h3>Usuarios registrados</h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Nombre</th><th>Predio</th><th>DNI</th><th>Área (ha)</th><th>Admin</th></tr></thead>
+        <tbody>
+          ${allPerfiles.map(p=>`<tr>
+            <td>${p.nombre||"-"}</td><td>${p.predio||"-"}</td><td>${p.dni||"-"}</td>
+            <td>${p.area_ha||"-"}</td><td>${p.is_admin?'<span class="badge ok">Admin</span>':""}</td>
+          </tr>`).join("") || `<tr><td colspan="5" class="empty">Sin usuarios todavía</td></tr>`}
+        </tbody>
+      </table></div>
+    </section>`;
+}
+
+/* ================= TAB: AgriTec (técnicos) ================= */
+function renderAgritec(container){
+  const regs = parsedRecords.filter(r=>r.area==="agritec" && r.moduleId==="at_visita");
+  const porTecnico = {};
+  regs.forEach(r=>{
+    const nombre = (r.record.tecnico||"Sin nombre").trim();
+    if(!porTecnico[nombre]) porTecnico[nombre] = { dni:r.record.dni_tecnico||"-", visitas:[], predios:new Set() };
+    porTecnico[nombre].visitas.push(r.record);
+    if(r.record.predio_visitado) porTecnico[nombre].predios.add(r.record.predio_visitado);
+  });
+  const nombres = Object.keys(porTecnico).sort();
+  const hoy = todayISOAdmin();
+
+  const filas = nombres.map(nombre=>{
+    const t = porTecnico[nombre];
+    const visitasHoy = t.visitas.filter(v=>v.fecha===hoy).length;
+    const ultima = t.visitas.map(v=>v.fecha).filter(Boolean).sort().pop() || "-";
+    const dAgo = daysAgo(ultima);
+    let badge = '<span class="badge bad">Sin actividad</span>';
+    if(dAgo!==null && dAgo<=1) badge = '<span class="badge ok">Al día</span>';
+    else if(dAgo!==null && dAgo<=3) badge = '<span class="badge warn">Atención</span>';
+    return `<tr>
+      <td>${nombre}</td><td>${t.dni}</td><td>${t.visitas.length}</td>
+      <td>${visitasHoy}</td><td>${t.predios.size}</td><td>${ultima}</td><td>${badge}</td>
+    </tr>`;
+  }).join("");
+
+  container.innerHTML = `
+    <div class="cards-row">
+      <div class="stat-card"><div class="num">${nombres.length}</div><div class="lbl">Técnicos con registros</div></div>
+      <div class="stat-card"><div class="num">${regs.length}</div><div class="lbl">Visitas totales registradas</div></div>
+      <div class="stat-card"><div class="num">${regs.filter(r=>r.record.fecha===hoy).length}</div><div class="lbl">Visitas registradas hoy</div></div>
+    </div>
+    <section>
+      <h3>Monitoreo por técnico <button class="btn-mini" id="btnExpAgritec">Exportar Excel</button></h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Técnico</th><th>DNI</th><th>Visitas totales</th><th>Visitas hoy</th><th>Predios distintos</th><th>Última visita</th><th>Estado</th></tr></thead>
+        <tbody>${filas || `<tr><td colspan="7" class="empty">Aún no hay visitas registradas por técnicos</td></tr>`}</tbody>
+      </table></div>
+    </section>
+    <section>
+      <h3>Detalle de todas las visitas <button class="btn-mini" id="btnExpAgritecDetalle">Exportar Excel</button></h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Fecha</th><th>Técnico</th><th>Agricultor</th><th>Predio visitado</th><th>Actividad</th><th>Hora inicio</th><th>Hora fin</th><th>GPS</th></tr></thead>
+        <tbody>${regs.sort((a,b)=>(b.record.fecha||"").localeCompare(a.record.fecha||"")).map(r=>`<tr>
+          <td>${r.record.fecha||"-"}</td><td>${r.record.tecnico||"-"}</td><td>${r.record.agricultor||"-"}</td>
+          <td>${r.record.predio_visitado||"-"}</td><td>${(r.record.actividad||"-").slice(0,60)}</td>
+          <td>${r.record.hora_inicio||"-"}</td><td>${r.record.hora_fin||"-"}</td><td>${r.record.gps||"-"}</td>
+        </tr>`).join("") || `<tr><td colspan="8" class="empty">Sin registros</td></tr>`}</tbody>
+      </table></div>
+    </section>`;
+
+  document.getElementById("btnExpAgritec").onclick = ()=>{
+    const rows = nombres.map(nombre=>{
+      const t = porTecnico[nombre];
+      const ultima = t.visitas.map(v=>v.fecha).filter(Boolean).sort().pop() || "-";
+      return {Tecnico:nombre, DNI:t.dni, Visitas_totales:t.visitas.length, Predios_distintos:t.predios.size, Ultima_visita:ultima};
+    });
+    exportarExcel("AgriTec_resumen_tecnicos.xlsx", rows, ["Tecnico","DNI","Visitas_totales","Predios_distintos","Ultima_visita"]);
+  };
+  document.getElementById("btnExpAgritecDetalle").onclick = ()=>{
+    const rows = regs.map(r=>({
+      Fecha:r.record.fecha||"", Tecnico:r.record.tecnico||"", DNI:r.record.dni_tecnico||"",
+      Agricultor:r.record.agricultor||"", Predio_visitado:r.record.predio_visitado||"",
+      Actividad:r.record.actividad||"", Hora_inicio:r.record.hora_inicio||"", Hora_fin:r.record.hora_fin||"",
+      GPS:r.record.gps||"", Observaciones:r.record.obs||""
+    }));
+    exportarExcel("AgriTec_detalle_visitas.xlsx", rows, ["Fecha","Tecnico","DNI","Agricultor","Predio_visitado","Actividad","Hora_inicio","Hora_fin","GPS","Observaciones"]);
+  };
+}
+
+function todayISOAdmin(){ return new Date().toISOString().slice(0,10); }
+
+/* ================= TAB: Por módulo (Finca / Primario / Transformación) ================= */
+function renderModulos(container){
+  const areasSel = ["campo","primario","transformacion"];
+  container.innerHTML = `
+    <section>
+      <h3>Selecciona área y módulo</h3>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+        <select id="selArea">${areasSel.map(a=>`<option value="${a}">${AREAS[a].label}</option>`).join("")}</select>
+        <select id="selModulo"></select>
+        <button class="btn-mini" id="btnExpModulo">Exportar Excel</button>
+      </div>
+      <div id="moduloTableWrap"></div>
+    </section>`;
+
+  const selArea = document.getElementById("selArea");
+  const selModulo = document.getElementById("selModulo");
+
+  function poblarModulos(){
+    const area = AREAS[selArea.value];
+    selModulo.innerHTML = area.modules.map(m=>`<option value="${m.id}">${m.name}</option>`).join("");
+    pintarTabla();
+  }
+
+  function pintarTabla(){
+    const areaId = selArea.value;
+    const moduleId = selModulo.value;
+    const mod = moduleInfo(areaId, moduleId);
+    if(!mod){ document.getElementById("moduloTableWrap").innerHTML = `<p class="empty">Sin datos</p>`; return; }
+    const regs = parsedRecords.filter(r=>r.area===areaId && r.moduleId===moduleId);
+    const fields = mod.fields.filter(f=>f.t!=="photo");
+    const headHtml = `<th>Predio</th>` + fields.map(f=>`<th>${f.l}</th>`).join("");
+    const bodyHtml = regs.sort((a,b)=>(b.record.fecha||"").localeCompare(a.record.fecha||"")).map(r=>{
+      return `<tr><td><b>${r.predio}</b></td>` + fields.map(f=>`<td>${(r.record[f.k]??"-").toString().slice(0,50)}</td>`).join("") + `</tr>`;
+    }).join("");
+    document.getElementById("moduloTableWrap").innerHTML = `
+      <div class="tbl-wrap"><table><thead><tr>${headHtml}</tr></thead>
+      <tbody>${bodyHtml || `<tr><td colspan="${fields.length+1}" class="empty">Sin registros todavía en este módulo</td></tr>`}</tbody></table></div>
+      <p style="font-size:11px;color:var(--gray-500);margin-top:8px;">${regs.length} registro(s) de ${new Set(regs.map(r=>r.predio)).size} predio(s)/técnico(s)</p>`;
+  }
+
+  selArea.onchange = poblarModulos;
+  selModulo.onchange = pintarTabla;
+  poblarModulos();
+
+  document.getElementById("btnExpModulo").onclick = ()=>{
+    const areaId = selArea.value, moduleId = selModulo.value;
+    const mod = moduleInfo(areaId, moduleId);
+    const regs = parsedRecords.filter(r=>r.area===areaId && r.moduleId===moduleId);
+    const fields = mod.fields.filter(f=>f.t!=="photo");
+    const rows = regs.map(r=>{
+      const o = {Predio:r.predio};
+      fields.forEach(f=>{ o[f.l] = r.record[f.k] ?? ""; });
+      return o;
+    });
+    exportarExcel(`${AREAS[areaId].label}_${mod.name}.xlsx`.replace(/\s+/g,"_"), rows, ["Predio",...fields.map(f=>f.l)]);
+  };
+}
+
+/* ================= TAB: Cumplimiento por predio ================= */
+function renderCumplimiento(container){
+  const predios = allPerfiles.filter(p=>!p.is_admin);
+  const filas = predios.map(p=>{
+    const regsPredio = parsedRecords.filter(r=>r.predio===p.predio && r.area!=="agritec");
+    const fechas = regsPredio.map(r=>r.updated_at).filter(Boolean).sort();
+    const ultima = fechas.length ? fechas[fechas.length-1] : null;
+    const dAgo = daysAgo(ultima);
+    let badge, etiqueta;
+    if(dAgo===null){ badge='bad'; etiqueta='Sin registros'; }
+    else if(dAgo<=7){ badge='ok'; etiqueta='Al día'; }
+    else if(dAgo<=15){ badge='warn'; etiqueta=dAgo+' días sin subir'; }
+    else { badge='bad'; etiqueta=dAgo+' días sin subir'; }
+    return `<tr>
+      <td>${p.nombre||"-"}</td><td>${p.predio||"-"}</td><td>${regsPredio.length}</td>
+      <td>${ultima ? new Date(ultima).toLocaleDateString("es-PE") : "-"}</td>
+      <td><span class="badge ${badge}">${etiqueta}</span></td>
+    </tr>`;
+  }).join("");
+
+  container.innerHTML = `
+    <section>
+      <h3>Cumplimiento de registro por predio <button class="btn-mini" id="btnExpCumpl">Exportar Excel</button></h3>
+      <p style="font-size:12px;color:var(--gray-500);">Verde = actualizó en los últimos 7 días · Amarillo = 8-15 días sin subir datos · Rojo = más de 15 días o sin registros</p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Nombre</th><th>Predio</th><th>Registros totales</th><th>Última actividad</th><th>Estado</th></tr></thead>
+        <tbody>${filas || `<tr><td colspan="5" class="empty">Sin predios registrados</td></tr>`}</tbody>
+      </table></div>
+    </section>`;
+
+  document.getElementById("btnExpCumpl").onclick = ()=>{
+    const rows = predios.map(p=>{
+      const regsPredio = parsedRecords.filter(r=>r.predio===p.predio && r.area!=="agritec");
+      const fechas = regsPredio.map(r=>r.updated_at).filter(Boolean).sort();
+      const ultima = fechas.length ? fechas[fechas.length-1] : "";
+      return {Nombre:p.nombre||"", Predio:p.predio||"", Registros_totales:regsPredio.length, Ultima_actividad:ultima};
+    });
+    exportarExcel("Cumplimiento_predios.xlsx", rows, ["Nombre","Predio","Registros_totales","Ultima_actividad"]);
+  };
+}
+
+/* ================= Navegación de pestañas ================= */
+function renderTab(){
+  const container = document.getElementById("tabContent");
+  if(currentTab==="resumen") renderResumen(container);
+  else if(currentTab==="agritec") renderAgritec(container);
+  else if(currentTab==="modulos") renderModulos(container);
+  else if(currentTab==="cumplimiento") renderCumplimiento(container);
+}
+
+document.querySelectorAll(".tab-btn").forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    currentTab = btn.dataset.tab;
+    renderTab();
+  };
+});
+
+/* ================= Autenticación admin ================= */
+document.getElementById("btnAdmLogin").onclick = async ()=>{
+  const email = document.getElementById("admEmail").value.trim();
+  const password = document.getElementById("admPassword").value;
+  const errEl = document.getElementById("errMsg");
+  errEl.style.display="none";
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){ errEl.textContent = "Correo o contraseña incorrectos."; errEl.style.display="block"; return; }
+  await entrarAlPanel(data.user);
+};
+
+document.getElementById("btnLogoutAdmin").onclick = async ()=>{
+  await sb.auth.signOut();
+  document.getElementById("dashboardWrap").style.display="none";
+  document.getElementById("loginWrap").style.display="flex";
+};
+
+async function entrarAlPanel(user){
+  document.getElementById("loginWrap").style.display="none";
+  document.getElementById("dashboardWrap").style.display="block";
+  document.getElementById("adminWho").textContent = user.email;
+  const ok = await cargarTodo();
+  if(ok) renderTab();
+}
+
+(async function checkSession(){
+  const { data } = await sb.auth.getSession();
+  if(data && data.session && data.session.user){
+    await entrarAlPanel(data.session.user);
+  }
+})();
+</script>
+
+
+</html>
