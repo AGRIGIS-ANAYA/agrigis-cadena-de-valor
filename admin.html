@@ -79,6 +79,7 @@
       <button class="tab-btn active" data-tab="resumen">Resumen general</button>
       <button class="tab-btn" data-tab="agritec">AgriTec · Técnicos</button>
       <button class="tab-btn" data-tab="modulos">Por módulo (Finca / Primario / Transformación)</button>
+      <button class="tab-btn" data-tab="agriquest">AgriQuest · Mapas</button>
       <button class="tab-btn" data-tab="cumplimiento">Cumplimiento por predio</button>
     </div>
     <div id="tabContent"></div>
@@ -474,12 +475,12 @@ function renderResumen(container){
     <section>
       <h3>Usuarios registrados</h3>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Nombre</th><th>Predio</th><th>DNI</th><th>Área (ha)</th><th>Admin</th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Predio</th><th>Institución</th><th>Proyecto</th><th>DNI</th><th>Área (ha)</th><th>Admin</th></tr></thead>
         <tbody>
           ${allPerfiles.map(p=>`<tr>
-            <td>${p.nombre||"-"}</td><td>${p.predio||"-"}</td><td>${p.dni||"-"}</td>
+            <td>${p.nombre||"-"}</td><td>${p.predio||"-"}</td><td>${p.institucion||"-"}</td><td>${p.proyecto||"-"}</td><td>${p.dni||"-"}</td>
             <td>${p.area_ha||"-"}</td><td>${p.is_admin?'<span class="badge ok">Admin</span>':""}</td>
-          </tr>`).join("") || `<tr><td colspan="5" class="empty">Sin usuarios todavía</td></tr>`}
+          </tr>`).join("") || `<tr><td colspan="7" class="empty">Sin usuarios todavía</td></tr>`}
         </tbody>
       </table></div>
     </section>`;
@@ -616,6 +617,69 @@ function renderModulos(container){
   };
 }
 
+/* ================= TAB: AgriQuest (mapas, áreas, puntos) ================= */
+function renderAgriquest(container){
+  const areasRows = allRows.filter(r=>r.data_key.endsWith("_aq_areas"));
+  const wpRows = allRows.filter(r=>r.data_key.endsWith("_aq_waypoints"));
+
+  let areasFlat = [];
+  areasRows.forEach(row=>{
+    let arr = [];
+    try{ arr = typeof row.value === "string" ? JSON.parse(row.value) : row.value; }catch(e){}
+    if(Array.isArray(arr)) arr.forEach(a=> areasFlat.push({predio: row.predio, ...a}));
+  });
+
+  let wpFlat = [];
+  wpRows.forEach(row=>{
+    let arr = [];
+    try{ arr = typeof row.value === "string" ? JSON.parse(row.value) : row.value; }catch(e){}
+    if(Array.isArray(arr)) arr.forEach(w=> wpFlat.push({predio: row.predio, ...w}));
+  });
+
+  const totalHa = areasFlat.reduce((s,a)=> s + (parseFloat(a.ha)||0), 0);
+
+  container.innerHTML = `
+    <div class="cards-row">
+      <div class="stat-card"><div class="num">${areasFlat.length}</div><div class="lbl">Polígonos / áreas dibujadas</div></div>
+      <div class="stat-card"><div class="num">${totalHa.toFixed(2)}</div><div class="lbl">Hectáreas mapeadas (total)</div></div>
+      <div class="stat-card"><div class="num">${wpFlat.length}</div><div class="lbl">Puntos de interés guardados</div></div>
+    </div>
+    <section>
+      <h3>Áreas / polígonos por predio o técnico <button class="btn-mini" id="btnExpAreas">Exportar Excel</button></h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Técnico / predio</th><th>Institución</th><th>Proyecto</th><th>Nombre del área</th><th>Hectáreas</th><th>Fecha</th></tr></thead>
+        <tbody>${areasFlat.map(a=>{
+          const perf = perfilPorPredio(a.predio);
+          return `<tr><td><b>${perf?.nombre||a.predio}</b></td><td>${a.institucion||perf?.institucion||"-"}</td><td>${a.proyecto||perf?.proyecto||"-"}</td>
+          <td>${a.nombre||"-"}</td><td>${a.ha||"-"}</td><td>${a.fecha||"-"}</td></tr>`;
+        }).join("") || `<tr><td colspan="6" class="empty">Sin áreas dibujadas todavía</td></tr>`}</tbody>
+      </table></div>
+    </section>
+    <section>
+      <h3>Puntos de interés <button class="btn-mini" id="btnExpWp">Exportar Excel</button></h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Técnico / predio</th><th>Nombre</th><th>Tipo</th><th>Latitud</th><th>Longitud</th></tr></thead>
+        <tbody>${wpFlat.map(w=>{
+          const perf = perfilPorPredio(w.predio);
+          return `<tr><td><b>${perf?.nombre||w.predio}</b></td><td>${w.nombre||"-"}</td><td>${w.tipo||"-"}</td><td>${w.lat??"-"}</td><td>${w.lng??"-"}</td></tr>`;
+        }).join("") || `<tr><td colspan="5" class="empty">Sin puntos guardados todavía</td></tr>`}</tbody>
+      </table></div>
+    </section>
+    <p style="font-size:11px;color:var(--gray-500);">Cada área y punto ahora se etiqueta con Institución y Proyecto al momento de guardarse en el celular.</p>`;
+
+  document.getElementById("btnExpAreas").onclick = ()=>{
+    const rows = areasFlat.map(a=>{
+      const perf = perfilPorPredio(a.predio);
+      return {Tecnico_predio:perf?.nombre||a.predio, Institucion:a.institucion||perf?.institucion||"", Proyecto:a.proyecto||perf?.proyecto||"", Nombre_area:a.nombre||"", Hectareas:a.ha||"", Fecha:a.fecha||""};
+    });
+    exportarExcel("AgriQuest_areas.xlsx", rows, ["Tecnico_predio","Institucion","Proyecto","Nombre_area","Hectareas","Fecha"]);
+  };
+  document.getElementById("btnExpWp").onclick = ()=>{
+    const rows = wpFlat.map(w=>({Predio:w.predio, Nombre:w.nombre||"", Tipo:w.tipo||"", Latitud:w.lat??"", Longitud:w.lng??""}));
+    exportarExcel("AgriQuest_puntos.xlsx", rows, ["Predio","Nombre","Tipo","Latitud","Longitud"]);
+  };
+}
+
 /* ================= TAB: Cumplimiento por predio ================= */
 function renderCumplimiento(container){
   const predios = allPerfiles.filter(p=>!p.is_admin);
@@ -663,6 +727,7 @@ function renderTab(){
   if(currentTab==="resumen") renderResumen(container);
   else if(currentTab==="agritec") renderAgritec(container);
   else if(currentTab==="modulos") renderModulos(container);
+  else if(currentTab==="agriquest") renderAgriquest(container);
   else if(currentTab==="cumplimiento") renderCumplimiento(container);
 }
 
