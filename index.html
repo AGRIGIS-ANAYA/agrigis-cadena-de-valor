@@ -144,6 +144,10 @@
     <input type="text" id="loginPredio" placeholder="Ej. FUNDO-ANAYA">
     <label>Área del predio (ha) — opcional</label>
     <input type="text" id="loginArea" placeholder="Ej. 3.4635">
+    <label>Institución / empresa que te contrató — opcional</label>
+    <input type="text" id="loginInstitucion" placeholder="Ej. AGRIGIS, Cooperativa APACOFA">
+    <label>Proyecto / línea de cultivo — opcional</label>
+    <input type="text" id="loginProyecto" placeholder="Ej. Cacao, Café, Camu Camu">
     <div id="prediosListWrap"></div>
     <button class="primary" id="btnLogin" style="width:100%;">Guardar y continuar</button>
     <p style="font-size:11px; color:var(--gray-500); margin-top:10px;">Esto identifica tus registros dentro de tu cuenta.</p>
@@ -451,8 +455,10 @@ const AGRITEC_MODULES = [
  {id:"at_visita", group:"Visitas técnicas", name:"Registro de visita técnica",
   desc:"Cada técnico registra su visita desde el campo, con ubicación GPS capturada en el momento.", status:"nuevo",
   fields:[
-    {k:"fecha",l:"Fecha",t:"date"},{k:"tecnico",l:"Nombre del técnico",t:"text"},{k:"dni_tecnico",l:"DNI del técnico",t:"text"},
-    {k:"agricultor",l:"Agricultor visitado",t:"text"},{k:"predio_visitado",l:"Predio visitado",t:"text"},
+    {k:"fecha",l:"Fecha",t:"date"},{k:"institucion",l:"Institución / entidad contratante",t:"text"},
+    {k:"proyecto",l:"Proyecto / cultivo o línea de trabajo",t:"text"},
+    {k:"tecnico",l:"Nombre del técnico",t:"text"},{k:"dni_tecnico",l:"DNI del técnico",t:"text"},
+    {k:"agricultor",l:"Agricultor visitado",t:"text"},{k:"predio_visitado",l:"Predio / parcela / sector visitado",t:"text"},
     {k:"actividad",l:"Actividad realizada",t:"textarea",full:true},{k:"hora_inicio",l:"Hora de inicio",t:"text"},
     {k:"hora_fin",l:"Hora de fin",t:"text"},{k:"gps",l:"Ubicación GPS (lat, lng)",t:"text"},
     {k:"foto",l:"Fotografía de evidencia",t:"photo"},
@@ -553,10 +559,11 @@ async function getCloudProfile(){
   if(error) return null;
   return data;
 }
-async function saveCloudProfile(nombre, dni, predio, area_ha){
+async function saveCloudProfile(nombre, dni, predio, area_ha, institucion, proyecto){
   if(!sbUser) return;
   await sb.from("agrigis_perfiles").upsert({
-    user_id: sbUser.id, nombre, dni, predio, area_ha
+    user_id: sbUser.id, nombre, dni, predio, area_ha,
+    institucion: institucion || "AGRIGIS", proyecto: proyecto || "General"
   }, { onConflict: "user_id" });
 }
 
@@ -573,7 +580,7 @@ async function iniciarSesionUI(){
     let predios = getPredios();
     if(!predios.includes(perfil.predio)){ predios.push(perfil.predio); setPredios(predios); }
     setCurrentPredio(perfil.predio);
-    setPredioProfile(perfil.predio, {nombre: perfil.nombre, dni: perfil.dni, area: perfil.area_ha});
+    setPredioProfile(perfil.predio, {nombre: perfil.nombre, dni: perfil.dni, area: perfil.area_ha, institucion: perfil.institucion, proyecto: perfil.proyecto});
     if(perfil.predio.toUpperCase().replace(/[^A-Z0-9]/g,"")==="FUNDOANAYA"){ seedFundoAnayaIfNeeded(); }
     document.getElementById("appScreen").style.display = "block";
     currentArea="campo"; currentModuleId="inicio";
@@ -678,14 +685,16 @@ document.getElementById("btnLogin").onclick = async ()=>{
   const dni = document.getElementById("loginDni").value.trim();
   const predio = document.getElementById("loginPredio").value.trim();
   const area_ha = document.getElementById("loginArea").value.trim();
+  const institucion = document.getElementById("loginInstitucion").value.trim();
+  const proyecto = document.getElementById("loginProyecto").value.trim();
   if(!nombre || !predio){ alert("Ingresa tu nombre y el código de predio."); return; }
   currentUserName = nombre;
   localStorage.setItem("agrigis_last_user", nombre);
   let predios = getPredios();
   if(!predios.includes(predio)){ predios.push(predio); setPredios(predios); }
   setCurrentPredio(predio);
-  setPredioProfile(predio, {nombre, dni, area:area_ha});
-  await saveCloudProfile(nombre, dni, predio, area_ha);
+  setPredioProfile(predio, {nombre, dni, area:area_ha, institucion, proyecto});
+  await saveCloudProfile(nombre, dni, predio, area_ha, institucion, proyecto);
   if(predio.toUpperCase().replace(/[^A-Z0-9]/g,"")==="FUNDOANAYA"){ seedFundoAnayaIfNeeded(); }
   document.getElementById("loginScreen").style.display="none";
   document.getElementById("appScreen").style.display="block";
@@ -898,7 +907,6 @@ function renderModuleView(main, moduleId){
     <div class="module-head">
       <div><h2>${m.name}</h2><p>${m.desc}</p></div>
       <div class="toolbar">
-        <button id="btnConfigFields">⚙ Configurar campos</button>
         <button id="btnExportExcel">Excel</button>
         <button id="btnExportPdf">PDF</button>
         <button id="btnExportPng">Imagen</button>
@@ -912,7 +920,6 @@ function renderModuleView(main, moduleId){
   document.getElementById("btnExportExcel").onclick = ()=> exportModuleExcel(moduleId);
   document.getElementById("btnExportPdf").onclick = ()=> exportModulePdf(moduleId);
   document.getElementById("btnExportPng").onclick = ()=> exportModulePng(moduleId);
-  document.getElementById("btnConfigFields").onclick = ()=> openFieldConfig(moduleId);
   renderTable(moduleId, fields);
 }
 
@@ -1062,6 +1069,13 @@ function openModal(moduleId, recordId, prefill){
   editingRecordId = recordId || null;
   let record = prefill || {};
   if(editingRecordId){ record = getRecords(moduleId).find(r=>r.id===editingRecordId) || {}; }
+  else if(moduleId==="at_visita"){
+    const prof = getPredioProfile(getCurrentPredio());
+    record = Object.assign({
+      institucion: prof.institucion||"", proyecto: prof.proyecto||"",
+      tecnico: currentUserName||"", dni_tecnico: prof.dni||""
+    }, record);
+  }
   const sectores = getSectores();
 
   let fieldsHtml = fields.map(f=>{
@@ -1771,8 +1785,12 @@ document.addEventListener("click", (e)=>{
     navigator.geolocation.getCurrentPosition(pos=>{
       const nombre = prompt("Nombre del punto de interés:", "Punto "+(getWaypoints().length+1));
       if(!nombre) return;
+      const tipoOpciones = "1) Potencial productivo\n2) Potencial agroturístico\n3) Visita técnica\n4) Otro";
+      let tipoNum = prompt("Tipo de punto:\n"+tipoOpciones, "1");
+      const tipos = {"1":"Potencial productivo","2":"Potencial agroturístico","3":"Visita técnica","4":"Otro"};
+      const tipo = tipos[tipoNum] || "Otro";
       const list = getWaypoints();
-      list.push({nombre, lat:pos.coords.latitude, lng:pos.coords.longitude, fecha: todayISO()});
+      list.push({nombre, tipo, lat:pos.coords.latitude, lng:pos.coords.longitude, fecha: todayISO()});
       setWaypoints(list);
       renderAqLists();
       drawSavedWaypoints();
@@ -1790,7 +1808,7 @@ function drawSavedWaypoints(){
   if(!aqMarkersLayer) return;
   aqMarkersLayer.clearLayers();
   getWaypoints().forEach(w=>{
-    L.marker([w.lat,w.lng]).addTo(aqMarkersLayer).bindPopup(`${w.nombre}<br>${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}`);
+    L.marker([w.lat,w.lng]).addTo(aqMarkersLayer).bindPopup(`${w.nombre} ${w.tipo?"("+w.tipo+")":""}<br>${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}`);
   });
 }
 function renderAqLists(){
@@ -1804,7 +1822,7 @@ function renderAqLists(){
   if(wList){
     const wps = getWaypoints();
     wList.innerHTML = wps.length===0 ? '<p style="font-size:12.5px; color:var(--gray-500);">Ninguno todavía.</p>' :
-      wps.map((w,i)=>`<div class="cfg-row"><span>${w.nombre} — ${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}</span><button data-i="${i}" class="danger" data-t="wp">Borrar</button></div>`).join("");
+      wps.map((w,i)=>`<div class="cfg-row"><span>${w.nombre} ${w.tipo?"— <b>"+w.tipo+"</b>":""} (${w.lat.toFixed(5)}, ${w.lng.toFixed(5)})</span><button data-i="${i}" class="danger" data-t="wp">Borrar</button></div>`).join("");
   }
   document.querySelectorAll('button[data-t="area"]').forEach(btn=>{
     btn.onclick = ()=>{ const l=getAreas(); l.splice(parseInt(btn.dataset.i),1); setAreasAQ(l); renderAqLists(); initAqMap(); };
