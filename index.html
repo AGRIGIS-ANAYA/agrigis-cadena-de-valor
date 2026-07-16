@@ -675,6 +675,13 @@ async function pullGlobalFieldOverrides(){
       });
     }
   }catch(e){}
+  try{
+    const { data: inst } = await sb.from("agrigis_instituciones").select("*").order("institucion");
+    if(inst) localStorage.setItem("agrigis_instituciones_list", JSON.stringify(inst));
+  }catch(e){}
+}
+function getInstitucionesList(){
+  try{ return JSON.parse(localStorage.getItem("agrigis_instituciones_list")||"[]"); }catch(e){ return []; }
 }
 // Funciones heredadas (ya no se usan para mostrar campos, evitan errores en restauraciones antiguas de JSON)
 function setFields(moduleId, fields){ localStorage.setItem(pKey(currentArea+"_fields_"+moduleId), JSON.stringify(fields)); }
@@ -866,9 +873,8 @@ function renderConfig(main){
     <div class="card">
       <b>Perfil del predio</b>
       <div class="field-grid" style="margin-top:10px;">
-        <div class="field"><label>Nombre del propietario/responsable</label><input type="text" id="cfgNombre" value="${prof.nombre||""}"></div>
+        <div class="field"><label>Nombre</label><input type="text" id="cfgNombre" value="${prof.nombre||""}"></div>
         <div class="field"><label>DNI</label><input type="text" id="cfgDni" value="${prof.dni||""}"></div>
-        <div class="field"><label>Área del predio (ha)</label><input type="text" id="cfgArea" value="${prof.area||""}"></div>
       </div>
       <button class="primary" id="btnSaveProfile" style="margin-top:10px;">Guardar perfil</button>
     </div>
@@ -876,6 +882,12 @@ function renderConfig(main){
       <b>Ayuda</b>
       <p style="font-size:12.5px; color:var(--gray-700);">Ejemplos de frases para el asistente de voz.</p>
       <button id="btnVoiceGuideCfg">Ver guía del asistente de voz</button>
+    </div>
+    <div class="card">
+      <b>Sincronización con la nube</b>
+      <p style="font-size:12px;color:var(--gray-500);">Si tus registros no aparecen en el panel administrador, presiona este botón.</p>
+      <button id="btnSyncNow">Sincronizar mis registros con la nube ahora</button>
+      <div id="syncNowMsg" style="font-size:12px;margin-top:6px;"></div>
     </div>
     <div class="card">
       <b>Datos migrados (Fundo Anaya)</b>
@@ -887,8 +899,13 @@ function renderConfig(main){
       <p style="font-size:12.5px; color:var(--gray-700);">AGRIGIS · Cadena de Valor. Los datos se guardan en el navegador de este dispositivo. Usa Respaldo/Importar JSON para trasladar información entre PC y celular.</p>
     </div>`;
   document.getElementById("btnVoiceGuideCfg").onclick = showVoiceGuide;
+  document.getElementById("btnSyncNow").onclick = async ()=>{
+    document.getElementById("syncNowMsg").textContent = "Subiendo todos tus registros a la nube, espera...";
+    await syncPushAllLocal();
+    document.getElementById("syncNowMsg").textContent = "Listo. Revisa el panel administrador en 30 segundos.";
+  };
   document.getElementById("btnSaveProfile").onclick = ()=>{
-    setPredioProfile(getCurrentPredio(), {nombre:document.getElementById("cfgNombre").value, dni:document.getElementById("cfgDni").value, area:document.getElementById("cfgArea").value});
+    setPredioProfile(getCurrentPredio(), {nombre:document.getElementById("cfgNombre").value, dni:document.getElementById("cfgDni").value, area: prof.area||""});
     renderAll();
     alert("Perfil guardado.");
   };
@@ -1090,6 +1107,7 @@ function exportModulePng(moduleId){
 /* ================= Modal de registro ================= */
 let editingRecordId = null;
 function openModal(moduleId, recordId, prefill){
+  const vb0=document.querySelector(".voice-btn"); if(vb0) vb0.style.display="none";
   const m = AREAS[currentArea].modules.find(x=>x.id===moduleId);
   const fields = getFields(moduleId);
   editingRecordId = recordId || null;
@@ -1112,6 +1130,12 @@ function openModal(moduleId, recordId, prefill){
         sectores.map(s=>`<option value="${s.codigo}" ${s.codigo===val?"selected":""}>${s.codigo}${s.nota?" — "+s.nota:""}</option>`).join("") +
         `<option value="__otro__">Otro (escribir)</option></select>
         <input type="text" data-k="${f.k}_libre" placeholder="Escribir sector si no está en la lista" style="margin-top:4px; display:none;">`;
+    } else if(f.k==="institucion" && getInstitucionesList().length>0){
+      const insts = [...new Set(getInstitucionesList().map(i=>i.institucion))];
+      input = `<select data-k="institucion" id="selInstitucionForm"><option value="">-- Seleccionar --</option>` +
+        insts.map(i=>`<option value="${i}" ${i===val?"selected":""}>${i}</option>`).join("") + `</select>`;
+    } else if(f.k==="proyecto" && getInstitucionesList().length>0){
+      input = `<select data-k="proyecto" id="selProyectoForm"><option value="">-- Seleccionar --</option></select>`;
     } else if(f.k==="gps"){
       input = `<div style="display:flex; gap:6px;"><input type="text" data-k="${f.k}" value="${val}" placeholder="lat, lng" style="flex:1;">
         <button type="button" id="btnCapturarGps">Capturar ubicación</button></div>
@@ -1150,6 +1174,18 @@ function openModal(moduleId, recordId, prefill){
     });
   }
   const btnGps = document.getElementById("btnCapturarGps");
+  const selInst = document.getElementById("selInstitucionForm");
+  const selProy = document.getElementById("selProyectoForm");
+  if(selInst && selProy){
+    const proyectoActual = record["proyecto"]||"";
+    function poblarProyectos(){
+      const opciones = getInstitucionesList().filter(i=>i.institucion===selInst.value);
+      selProy.innerHTML = '<option value="">-- Seleccionar --</option>' +
+        opciones.map(o=>`<option value="${o.proyecto}" ${o.proyecto===proyectoActual?"selected":""}>${o.proyecto}</option>`).join("");
+    }
+    selInst.onchange = poblarProyectos;
+    poblarProyectos();
+  }
   if(btnGps){
     btnGps.onclick = ()=>{
       if(!navigator.geolocation){ alert("Tu navegador no soporta GPS."); return; }
@@ -1225,7 +1261,7 @@ function openModal(moduleId, recordId, prefill){
     } else { finishSave(); }
   };
 }
-function closeModal(){ document.getElementById("modalArea").innerHTML=""; editingRecordId=null; }
+function closeModal(){ document.getElementById("modalArea").innerHTML=""; editingRecordId=null; const vb=document.querySelector(".voice-btn"); if(vb) vb.style.display="block"; }
 
 /* ================= Configurar campos ================= */
 function openFieldConfig(moduleId){
@@ -1747,8 +1783,12 @@ function initAqMap(){
   const mapaLimites = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: 'OpenStreetMap — incluye límites distritales/provinciales/país', maxZoom: 19
   });
+  const etiquetasHibrido = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Esri Boundaries & Places', maxZoom: 19
+  });
+  const hibrido = L.layerGroup([satelite, etiquetasHibrido]);
   satelite.addTo(aqMap);
-  L.control.layers({"Satélite": satelite, "Mapa (límites y nombres)": mapaLimites}, {}, {position:'topright'}).addTo(aqMap);
+  L.control.layers({"Satélite": satelite, "Híbrido (satélite + nombres)": hibrido, "Mapa (calles y límites)": mapaLimites}, {}, {position:'topright'}).addTo(aqMap);
 
   aqMarkersLayer = L.layerGroup().addTo(aqMap);
   drawSavedAreas();
@@ -1785,10 +1825,21 @@ document.addEventListener("click", (e)=>{
         const nombre = prompt("Nombre para esta área (ej. Sector nuevo):", "Área "+(getAreas().length+1));
         if(nombre){
           const prof = getPredioProfile(getCurrentPredio());
-          const institucion = prompt("¿A qué institución/entidad pertenece este trabajo?", prof.institucion||"");
-          const proyecto = prompt("¿A qué proyecto/cultivo pertenece esta área?", prof.proyecto||"");
+          const listaInst = getInstitucionesList();
+          let institucion = prof.institucion||"", proyecto = prof.proyecto||"";
+          if(listaInst.length>0){
+            const opciones = listaInst.map((o,idx)=>(idx+1)+") "+o.institucion+" — "+o.proyecto).join("\n");
+            const num = prompt("¿A qué institución/proyecto pertenece esta área?\n"+opciones+"\n\nEscribe el número:", "1");
+            const elegido = listaInst[parseInt(num)-1];
+            if(elegido){ institucion = elegido.institucion; proyecto = elegido.proyecto; }
+          } else {
+            institucion = prompt("¿A qué institución/entidad pertenece este trabajo?", institucion) || "";
+            proyecto = prompt("¿A qué proyecto/cultivo pertenece esta área?", proyecto) || "";
+          }
+          const centroLat = aqDrawPoints.reduce((s,p)=>s+p[0],0)/aqDrawPoints.length;
+          const centroLng = aqDrawPoints.reduce((s,p)=>s+p[1],0)/aqDrawPoints.length;
           const list = getAreas();
-          list.push({nombre, ha: ha.toFixed(2), puntos: aqDrawPoints, fecha: todayISO(), institucion: institucion||"", proyecto: proyecto||""});
+          list.push({nombre, ha: ha.toFixed(2), puntos: aqDrawPoints, fecha: todayISO(), institucion: institucion||"", proyecto: proyecto||"", lat: centroLat.toFixed(6), lng: centroLng.toFixed(6)});
           setAreasAQ(list);
           renderAqLists();
         }

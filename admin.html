@@ -382,6 +382,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let allRows = [];      // filas crudas de agrigis_kv
 let allPerfiles = [];  // filas de agrigis_perfiles
 let allFieldOverrides = []; // filas de agrigis_field_overrides
+let allInstituciones = []; // filas de agrigis_instituciones
 let parsedRecords = []; // { predio, area, moduleId, record, updated_at }
 let currentTab = "resumen";
 
@@ -435,6 +436,7 @@ async function cargarTodo(){
   const { data: kvData, error: kvErr } = await sb.from("agrigis_kv").select("*");
   const { data: perfData, error: perfErr } = await sb.from("agrigis_perfiles").select("*");
   const { data: fieldData } = await sb.from("agrigis_field_overrides").select("*");
+  const { data: instData } = await sb.from("agrigis_instituciones").select("*").order("institucion");
   if(kvErr || perfErr){
     setStatus("No se pudieron cargar los datos. Verifica que tu cuenta tenga permiso de administrador (ver 02_admin_setup.sql).");
     return false;
@@ -442,6 +444,7 @@ async function cargarTodo(){
   allRows = kvData || [];
   allPerfiles = perfData || [];
   allFieldOverrides = fieldData || [];
+  allInstituciones = instData || [];
   parseAllRows();
   setStatus("Datos actualizados · "+new Date().toLocaleString("es-PE"));
   return true;
@@ -652,12 +655,12 @@ function renderAgriquest(container){
     <section>
       <h3>Áreas / polígonos por predio o técnico <button class="btn-mini" id="btnExpAreas">Exportar Excel</button></h3>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Técnico / predio</th><th>Institución</th><th>Proyecto</th><th>Nombre del área</th><th>Hectáreas</th><th>Fecha</th></tr></thead>
+        <thead><tr><th>Técnico / predio</th><th>Institución</th><th>Proyecto</th><th>Nombre del área</th><th>Hectáreas</th><th>Coordenada (centro)</th><th>Fecha</th></tr></thead>
         <tbody>${areasFlat.map(a=>{
           const perf = perfilPorPredio(a.predio);
           return `<tr><td><b>${perf?.nombre||a.predio}</b></td><td>${a.institucion||perf?.institucion||"-"}</td><td>${a.proyecto||perf?.proyecto||"-"}</td>
-          <td>${a.nombre||"-"}</td><td>${a.ha||"-"}</td><td>${a.fecha||"-"}</td></tr>`;
-        }).join("") || `<tr><td colspan="6" class="empty">Sin áreas dibujadas todavía</td></tr>`}</tbody>
+          <td>${a.nombre||"-"}</td><td>${a.ha||"-"}</td><td>${a.lat&&a.lng?a.lat+", "+a.lng:"-"}</td><td>${a.fecha||"-"}</td></tr>`;
+        }).join("") || `<tr><td colspan="7" class="empty">Sin áreas dibujadas todavía</td></tr>`}</tbody>
       </table></div>
     </section>
     <section>
@@ -675,9 +678,9 @@ function renderAgriquest(container){
   document.getElementById("btnExpAreas").onclick = ()=>{
     const rows = areasFlat.map(a=>{
       const perf = perfilPorPredio(a.predio);
-      return {Tecnico_predio:perf?.nombre||a.predio, Institucion:a.institucion||perf?.institucion||"", Proyecto:a.proyecto||perf?.proyecto||"", Nombre_area:a.nombre||"", Hectareas:a.ha||"", Fecha:a.fecha||""};
+      return {Tecnico_predio:perf?.nombre||a.predio, Institucion:a.institucion||perf?.institucion||"", Proyecto:a.proyecto||perf?.proyecto||"", Nombre_area:a.nombre||"", Hectareas:a.ha||"", Coordenada_centro:a.lat&&a.lng?a.lat+", "+a.lng:"", Fecha:a.fecha||""};
     });
-    exportarExcel("AgriQuest_areas.xlsx", rows, ["Tecnico_predio","Institucion","Proyecto","Nombre_area","Hectareas","Fecha"]);
+    exportarExcel("AgriQuest_areas.xlsx", rows, ["Tecnico_predio","Institucion","Proyecto","Nombre_area","Hectareas","Coordenada_centro","Fecha"]);
   };
   document.getElementById("btnExpWp").onclick = ()=>{
     const rows = wpFlat.map(w=>({Predio:w.predio, Nombre:w.nombre||"", Tipo:w.tipo||"", Latitud:w.lat??"", Longitud:w.lng??""}));
@@ -692,6 +695,14 @@ function renderCampos(container){
   const areasSel = ["campo","primario","transformacion","agritec"];
   container.innerHTML = `
     <section>
+      <h3>Instituciones y proyectos predeterminados <button class="btn-mini" id="btnInstAgregar">+ Agregar</button></h3>
+      <p style="font-size:12px;color:var(--gray-500);">Esta lista aparece como opciones predeterminadas para los técnicos en AgriTec y AgriQuest — ya no escriben el nombre, lo eligen.</p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Institución</th><th>Proyecto</th><th></th></tr></thead>
+        <tbody>${allInstituciones.map(i=>`<tr><td>${i.institucion}</td><td>${i.proyecto}</td><td><button class="btn-mini" data-id="${i.id}" onclick="window.__delInst('${i.id}')">Quitar</button></td></tr>`).join("") || `<tr><td colspan="3" class="empty">Sin instituciones aún</td></tr>`}</tbody>
+      </table></div>
+    </section>
+    <section>
       <h3>Configurar campos de un formulario</h3>
       <p style="font-size:12px;color:var(--gray-500);">Lo que cambies aquí se aplica automáticamente a TODOS los celulares la próxima vez que cada persona inicie sesión. No afecta los registros ya guardados.</p>
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
@@ -702,6 +713,20 @@ function renderCampos(container){
       </div>
       <div id="cfgFieldsWrap"></div>
     </section>`;
+
+  window.__delInst = async (id)=>{
+    if(!confirm("¿Quitar esta institución/proyecto de la lista?")) return;
+    await sb.from("agrigis_instituciones").delete().eq("id", id);
+    await cargarTodo(); renderCampos(container);
+  };
+  document.getElementById("btnInstAgregar").onclick = async ()=>{
+    const institucion = prompt("Nombre de la institución/entidad:");
+    if(!institucion) return;
+    const proyecto = prompt("Nombre del proyecto/cultivo/línea de trabajo:");
+    if(!proyecto) return;
+    await sb.from("agrigis_instituciones").insert({institucion, proyecto});
+    await cargarTodo(); renderCampos(container);
+  };
 
   const selArea = document.getElementById("cfgSelArea");
   const selModulo = document.getElementById("cfgSelModulo");
