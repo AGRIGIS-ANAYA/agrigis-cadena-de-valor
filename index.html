@@ -568,11 +568,25 @@ async function saveCloudProfile(nombre, dni, predio, area_ha, institucion, proye
 }
 
 /* ---- Flujo de autenticación ---- */
+/* Sube TODO lo que ya existe guardado en este celular hacia la nube.
+   Es seguro ejecutarlo varias veces (no duplica, solo actualiza). */
+async function syncPushAllLocal(){
+  if(!sbUser) return;
+  setStatus("Subiendo tus registros existentes a la nube…");
+  const keys = Object.keys(localStorage).filter(k=>k.indexOf("agrigis_")===0);
+  for(const k of keys){
+    const val = localStorage.getItem(k);
+    await syncPush(k, val);
+  }
+  setStatus("Sincronizado ✓");
+}
+
 async function iniciarSesionUI(){
   document.getElementById("authScreen").style.display = "none";
   document.getElementById("loginScreen").style.display = "none";
   document.getElementById("appScreen").style.display = "none";
   await syncPullAll();
+  await pullGlobalFieldOverrides();
   const perfil = await getCloudProfile();
   if(perfil && perfil.predio){
     currentUserName = perfil.nombre || "";
@@ -585,6 +599,7 @@ async function iniciarSesionUI(){
     document.getElementById("appScreen").style.display = "block";
     currentArea="campo"; currentModuleId="inicio";
     renderAll();
+    syncPushAllLocal();
   } else {
     document.getElementById("loginScreen").style.display = "flex";
     refreshPrediosListLogin();
@@ -647,10 +662,21 @@ function getRecords(moduleId){return JSON.parse(localStorage.getItem(storageKey(
 function saveRecords(moduleId, records){localStorage.setItem(storageKey(currentArea, moduleId), JSON.stringify(records));}
 
 function getFields(moduleId){
-  const override = localStorage.getItem(pKey(currentArea+"_fields_"+moduleId));
-  if(override) return JSON.parse(override);
+  const globalOverride = localStorage.getItem("agrigis_global_fields_"+currentArea+"_"+moduleId);
+  if(globalOverride) return JSON.parse(globalOverride);
   return AREAS[currentArea].modules.find(m=>m.id===moduleId).fields;
 }
+async function pullGlobalFieldOverrides(){
+  try{
+    const { data, error } = await sb.from("agrigis_field_overrides").select("*");
+    if(!error && data){
+      data.forEach(row=>{
+        localStorage.setItem("agrigis_global_fields_"+row.area+"_"+row.module_id, JSON.stringify(row.fields));
+      });
+    }
+  }catch(e){}
+}
+// Funciones heredadas (ya no se usan para mostrar campos, evitan errores en restauraciones antiguas de JSON)
 function setFields(moduleId, fields){ localStorage.setItem(pKey(currentArea+"_fields_"+moduleId), JSON.stringify(fields)); }
 function resetFields(moduleId){ localStorage.removeItem(pKey(currentArea+"_fields_"+moduleId)); }
 

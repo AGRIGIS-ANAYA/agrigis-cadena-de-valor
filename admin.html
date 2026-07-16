@@ -80,6 +80,7 @@
       <button class="tab-btn" data-tab="agritec">AgriTec · Técnicos</button>
       <button class="tab-btn" data-tab="modulos">Por módulo (Finca / Primario / Transformación)</button>
       <button class="tab-btn" data-tab="agriquest">AgriQuest · Mapas</button>
+      <button class="tab-btn" data-tab="campos">Configurar campos</button>
       <button class="tab-btn" data-tab="cumplimiento">Cumplimiento por predio</button>
     </div>
     <div id="tabContent"></div>
@@ -380,6 +381,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let allRows = [];      // filas crudas de agrigis_kv
 let allPerfiles = [];  // filas de agrigis_perfiles
+let allFieldOverrides = []; // filas de agrigis_field_overrides
 let parsedRecords = []; // { predio, area, moduleId, record, updated_at }
 let currentTab = "resumen";
 
@@ -432,12 +434,14 @@ async function cargarTodo(){
   setStatus("Cargando datos de todos los usuarios…");
   const { data: kvData, error: kvErr } = await sb.from("agrigis_kv").select("*");
   const { data: perfData, error: perfErr } = await sb.from("agrigis_perfiles").select("*");
+  const { data: fieldData } = await sb.from("agrigis_field_overrides").select("*");
   if(kvErr || perfErr){
     setStatus("No se pudieron cargar los datos. Verifica que tu cuenta tenga permiso de administrador (ver 02_admin_setup.sql).");
     return false;
   }
   allRows = kvData || [];
   allPerfiles = perfData || [];
+  allFieldOverrides = fieldData || [];
   parseAllRows();
   setStatus("Datos actualizados · "+new Date().toLocaleString("es-PE"));
   return true;
@@ -506,7 +510,8 @@ function renderAgritec(container){
     const dAgo = daysAgo(ultima);
     let badge = '<span class="badge bad">Sin actividad</span>';
     if(dAgo!==null && dAgo<=1) badge = '<span class="badge ok">Al día</span>';
-    else if(dAgo!==null && dAgo<=3) badge = '<span class="badge warn">Atención</span>';
+    else if(dAgo!==null && dAgo<5) badge = '<span class="badge warn">Atención</span>';
+    else if(dAgo!==null && dAgo>=5) badge = '<span class="badge bad">Sin reportar (5+ días)</span>';
     return `<tr>
       <td>${nombre}</td><td>${t.dni}</td><td>${t.visitas.length}</td>
       <td>${visitasHoy}</td><td>${t.predios.size}</td><td>${ultima}</td><td>${badge}</td>
@@ -680,6 +685,87 @@ function renderAgriquest(container){
   };
 }
 
+/* ================= TAB: Configurar campos (global, para todos) ================= */
+let campoEditState = []; // copia editable de los campos del módulo seleccionado
+
+function renderCampos(container){
+  const areasSel = ["campo","primario","transformacion","agritec"];
+  container.innerHTML = `
+    <section>
+      <h3>Configurar campos de un formulario</h3>
+      <p style="font-size:12px;color:var(--gray-500);">Lo que cambies aquí se aplica automáticamente a TODOS los celulares la próxima vez que cada persona inicie sesión. No afecta los registros ya guardados.</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+        <select id="cfgSelArea">${areasSel.map(a=>`<option value="${a}">${AREAS[a].label}</option>`).join("")}</select>
+        <select id="cfgSelModulo"></select>
+        <button class="btn-mini" id="btnCfgRestaurar">Restaurar original</button>
+        <button class="btn-mini" id="btnCfgGuardar">Guardar y sincronizar a todos</button>
+      </div>
+      <div id="cfgFieldsWrap"></div>
+    </section>`;
+
+  const selArea = document.getElementById("cfgSelArea");
+  const selModulo = document.getElementById("cfgSelModulo");
+
+  function poblarModulos(){
+    const area = AREAS[selArea.value];
+    selModulo.innerHTML = area.modules.map(m=>`<option value="${m.id}">${m.name}</option>`).join("");
+    cargarCampos();
+  }
+
+  function cargarCampos(){
+    const areaId = selArea.value, moduleId = selModulo.value;
+    const mod = moduleInfo(areaId, moduleId);
+    const override = allFieldOverrides.find(o=>o.area===areaId && o.module_id===moduleId);
+    campoEditState = JSON.parse(JSON.stringify(override ? override.fields : mod.fields));
+    pintarCampos();
+  }
+
+  function pintarCampos(){
+    document.getElementById("cfgFieldsWrap").innerHTML = `
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Etiqueta (lo que ve el usuario)</th><th>Tipo</th><th></th></tr></thead>
+        <tbody>${campoEditState.map((f,i)=>`<tr>
+          <td><input type="text" data-i="${i}" class="cfgLabelInput" value="${(f.l||"").replace(/"/g,'&quot;')}" style="width:100%;padding:5px;"></td>
+          <td>${f.t||"text"}</td>
+          <td><button class="btn-mini" data-i="${i}" id="cfgDel${i}">Quitar</button></td>
+        </tr>`).join("")}</tbody>
+      </table></div>
+      <button class="btn-mini" id="btnCfgAgregar" style="margin-top:10px;">+ Agregar campo</button>`;
+
+    campoEditState.forEach((f,i)=>{
+      document.getElementById("cfgDel"+i).onclick = ()=>{ campoEditState.splice(i,1); pintarCampos(); };
+    });
+    document.querySelectorAll(".cfgLabelInput").forEach(inp=>{
+      inp.oninput = (e)=>{ campoEditState[parseInt(e.target.dataset.i)].l = e.target.value; };
+    });
+    document.getElementById("btnCfgAgregar").onclick = ()=>{
+      const nuevaClave = "campo_"+(campoEditState.length+1);
+      campoEditState.push({k:nuevaClave, l:"Nuevo campo", t:"text"});
+      pintarCampos();
+    };
+  }
+
+  selArea.onchange = poblarModulos;
+  selModulo.onchange = cargarCampos;
+  poblarModulos();
+
+  document.getElementById("btnCfgGuardar").onclick = async ()=>{
+    const areaId = selArea.value, moduleId = selModulo.value;
+    const { error } = await sb.from("agrigis_field_overrides").upsert({
+      area: areaId, module_id: moduleId, fields: campoEditState, updated_at: new Date().toISOString()
+    }, { onConflict: "area,module_id" });
+    alert(error ? "No se pudo guardar: "+error.message : "Guardado. Se sincronizará a todos los celulares en su próximo inicio de sesión.");
+    if(!error) await cargarTodo();
+  };
+  document.getElementById("btnCfgRestaurar").onclick = async ()=>{
+    const areaId = selArea.value, moduleId = selModulo.value;
+    if(!confirm("¿Restaurar los campos originales de este módulo para todos los usuarios?")) return;
+    await sb.from("agrigis_field_overrides").delete().eq("area", areaId).eq("module_id", moduleId);
+    await cargarTodo();
+    cargarCampos();
+  };
+}
+
 /* ================= TAB: Cumplimiento por predio ================= */
 function renderCumplimiento(container){
   const predios = allPerfiles.filter(p=>!p.is_admin);
@@ -728,6 +814,7 @@ function renderTab(){
   else if(currentTab==="agritec") renderAgritec(container);
   else if(currentTab==="modulos") renderModulos(container);
   else if(currentTab==="agriquest") renderAgriquest(container);
+  else if(currentTab==="campos") renderCampos(container);
   else if(currentTab==="cumplimiento") renderCumplimiento(container);
 }
 
