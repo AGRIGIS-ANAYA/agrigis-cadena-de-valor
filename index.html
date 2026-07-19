@@ -799,7 +799,7 @@ function renderPredioBar(){
   const prof = getPredioProfile(getCurrentPredio());
   document.getElementById("headerTitle").textContent = "AGRIGIS · " + AREAS[currentArea].label;
   document.getElementById("predioSub").textContent =
-    `Usuario: ${prof.nombre||currentUserName||""} ${prof.dni?"(DNI "+prof.dni+")":""} · Predio: ${getCurrentPredio()} ${prof.area?"· "+prof.area+" ha":""}`;
+    `Usuario: ${prof.nombre||currentUserName||""} ${prof.dni?"(DNI "+prof.dni+")":""} · Predio: ${getCurrentPredio()}`;
 }
 
 function renderAreaBar(){
@@ -951,8 +951,6 @@ function renderModuleView(main, moduleId){
       <div><h2>${m.name}</h2><p>${m.desc}</p></div>
       <div class="toolbar">
         <button id="btnExportExcel">Excel</button>
-        <button id="btnExportPdf">PDF</button>
-        <button id="btnExportPng">Imagen</button>
         <button class="primary" id="btnNewRecord">+ Nuevo registro</button>
       </div>
     </div>
@@ -961,8 +959,6 @@ function renderModuleView(main, moduleId){
   document.getElementById("searchBox").oninput = (e)=>{ currentFilterText=e.target.value; renderTable(moduleId, fields); };
   document.getElementById("btnNewRecord").onclick = ()=> openModal(moduleId, null);
   document.getElementById("btnExportExcel").onclick = ()=> exportModuleExcel(moduleId);
-  document.getElementById("btnExportPdf").onclick = ()=> exportModulePdf(moduleId);
-  document.getElementById("btnExportPng").onclick = ()=> exportModulePng(moduleId);
   renderTable(moduleId, fields);
 }
 
@@ -1108,6 +1104,7 @@ function exportModulePng(moduleId){
 let editingRecordId = null;
 function openModal(moduleId, recordId, prefill){
   const vb0=document.querySelector(".voice-btn"); if(vb0) vb0.style.display="none";
+  const hb0=document.getElementById("voiceHelpBtn"); if(hb0) hb0.style.display="none";
   const m = AREAS[currentArea].modules.find(x=>x.id===moduleId);
   const fields = getFields(moduleId);
   editingRecordId = recordId || null;
@@ -1261,7 +1258,7 @@ function openModal(moduleId, recordId, prefill){
     } else { finishSave(); }
   };
 }
-function closeModal(){ document.getElementById("modalArea").innerHTML=""; editingRecordId=null; const vb=document.querySelector(".voice-btn"); if(vb) vb.style.display="block"; }
+function closeModal(){ document.getElementById("modalArea").innerHTML=""; editingRecordId=null; const vb=document.querySelector(".voice-btn"); if(vb) vb.style.display="block"; const hb=document.getElementById("voiceHelpBtn"); if(hb) hb.style.display="block"; }
 
 /* ================= Configurar campos ================= */
 function openFieldConfig(moduleId){
@@ -1716,6 +1713,7 @@ function showVoiceGuide(){
 }
 (function addVoiceGuideButton(){
   const btn = document.createElement("button");
+  btn.id = "voiceHelpBtn";
   btn.textContent = "?";
   btn.title = "Guía del asistente de voz";
   btn.style.cssText = "position:fixed; bottom:22px; right:88px; width:40px; height:40px; border-radius:50%; z-index:90; font-weight:700;";
