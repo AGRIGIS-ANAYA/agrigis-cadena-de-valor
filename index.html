@@ -476,11 +476,11 @@ const AGRITEC_MODULES = [
 const AGRITEC_GROUPS = ["Visitas técnicas"];
 
 const AREAS = {
-  campo:{label:"FINCA", modules:CAMPO_MODULES, groups:CAMPO_GROUPS, alertDays:ALERT_DAYS, hasHistorial:true, hasAgromapa:true, hasDiag:true},
-  primario:{label:"PROCESAMIENTO PRIMARIO", modules:PRIMARIO_MODULES, groups:PRIMARIO_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
-  transformacion:{label:"TRANSFORMACIÓN", modules:TRANSFORM_MODULES, groups:TRANSFORM_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
-  agritec:{label:"AGRITEC", modules:AGRITEC_MODULES, groups:AGRITEC_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, hasGps:true},
-  agriquest:{label:"AGRIQUEST", modules:[], groups:[], alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, isMapTool:true}
+  campo:{label:"FINCA", icon:"🌱", modules:CAMPO_MODULES, groups:CAMPO_GROUPS, alertDays:ALERT_DAYS, hasHistorial:true, hasAgromapa:true, hasDiag:true},
+  primario:{label:"PROCESAMIENTO PRIMARIO", icon:"🌾", modules:PRIMARIO_MODULES, groups:PRIMARIO_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
+  transformacion:{label:"TRANSFORMACIÓN", icon:"🍫", modules:TRANSFORM_MODULES, groups:TRANSFORM_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
+  agritec:{label:"AGRITEC", icon:"👨‍🌾", modules:AGRITEC_MODULES, groups:AGRITEC_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, hasGps:true},
+  agriquest:{label:"AGRIQUEST", icon:"🗺️", modules:[], groups:[], alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, isMapTool:true}
 };
 const AREA_ORDER = ["campo","primario","transformacion","agritec","agriquest"];
 </script>
@@ -807,12 +807,12 @@ function renderPredioBar(){
   const prof = getPredioProfile(getCurrentPredio());
   document.getElementById("headerTitle").textContent = "AGRIGIS · " + AREAS[currentArea].label;
   document.getElementById("predioSub").textContent =
-    `Usuario: ${prof.nombre||currentUserName||""} ${prof.dni?"(DNI "+prof.dni+")":""} · Predio: ${getCurrentPredio()}`;
+    `Usuario: ${prof.nombre||currentUserName||""} ${prof.dni?"(DNI "+prof.dni+")":""}${currentArea==="campo"?" · Predio: "+getCurrentPredio():""}`;
 }
 
 function renderAreaBar(){
   const bar = document.getElementById("areaBar");
-  bar.innerHTML = AREA_ORDER.map(a=>`<button class="area-btn ${a===currentArea?"active":""}" data-a="${a}">${AREAS[a].label}</button>`).join("");
+  bar.innerHTML = AREA_ORDER.map(a=>`<button class="area-btn ${a===currentArea?"active":""}" data-a="${a}">${AREAS[a].icon||""} ${AREAS[a].label}</button>`).join("");
   bar.querySelectorAll("button[data-a]").forEach(btn=>{
     btn.onclick = ()=>{ currentArea = btn.dataset.a; currentModuleId="inicio"; renderAll(); };
   });
