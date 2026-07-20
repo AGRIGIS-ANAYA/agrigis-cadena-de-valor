@@ -1042,14 +1042,29 @@ async function exportModuleExcel(moduleId, modoCompartir){
     try{
       const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
       const file = new File([buf], filename, {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
-      if(navigator.canShare({files:[file]})){
-        await navigator.share({files:[file], title:filename});
+      const puede = navigator.canShare({files:[file]});
+      if(puede){
+        await navigator.share({files:[file]});
         return;
       }
     }catch(e){ /* si falla, sigue con descarga normal abajo */ }
   }
   XLSX.writeFile(wb, filename);
-  alert("Excel descargado. Búscalo en la carpeta 'Descargas' de tu celular si no ves un aviso.");
+  mostrarAvisoDescarga(filename);
+}
+
+function mostrarAvisoDescarga(filename){
+  let banner = document.getElementById("descargaBanner");
+  if(!banner){
+    banner = document.createElement("div");
+    banner.id = "descargaBanner";
+    banner.style.cssText = "position:fixed; top:10px; left:50%; transform:translateX(-50%); background:#1f5c3f; color:#fff; padding:12px 20px; border-radius:8px; z-index:999; font-size:13px; box-shadow:0 3px 12px rgba(0,0,0,.3); text-align:center;";
+    document.body.appendChild(banner);
+  }
+  banner.textContent = "✓ Descargado: "+filename+" — búscalo en tu carpeta Descargas";
+  banner.style.display = "block";
+  clearTimeout(window.__avisoTimeout);
+  window.__avisoTimeout = setTimeout(()=>{ banner.style.display="none"; }, 5000);
 }
 
 /* ---- Exportar PDF (tabla simple con jsPDF) ---- */
