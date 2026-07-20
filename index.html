@@ -475,12 +475,18 @@ const AGRITEC_MODULES = [
 ];
 const AGRITEC_GROUPS = ["Visitas técnicas"];
 
+const ICON_FINCA = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V13"/><path d="M12 13C12 13 6 13 6 7C6 7 12 7 12 13Z"/><path d="M12 13C12 13 18 13 18 7C18 7 12 7 12 13Z"/></svg>`;
+const ICON_PRIMARIO = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14l2 7-2 11H5L3 10Z"/><path d="M3 10h18"/></svg>`;
+const ICON_TRANSFORM = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6"/><path d="M10 2v6l-6 10a2 2 0 0 0 2 3h12a2 2 0 0 0 2-3l-6-10V2"/><path d="M8 15h8"/></svg>`;
+const ICON_AGRITEC = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/><path d="M9 21l2-2 2 2"/></svg>`;
+const ICON_AGRIQUEST = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 6.5-9 12-9 12s-9-5.5-9-12a9 9 0 0 1 18 0Z"/><circle cx="12" cy="10" r="3"/></svg>`;
+
 const AREAS = {
-  campo:{label:"FINCA", icon:"🌱", modules:CAMPO_MODULES, groups:CAMPO_GROUPS, alertDays:ALERT_DAYS, hasHistorial:true, hasAgromapa:true, hasDiag:true},
-  primario:{label:"PROCESAMIENTO PRIMARIO", icon:"🌾", modules:PRIMARIO_MODULES, groups:PRIMARIO_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
-  transformacion:{label:"TRANSFORMACIÓN", icon:"🍫", modules:TRANSFORM_MODULES, groups:TRANSFORM_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
-  agritec:{label:"AGRITEC", icon:"👨‍🌾", modules:AGRITEC_MODULES, groups:AGRITEC_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, hasGps:true},
-  agriquest:{label:"AGRIQUEST", icon:"🗺️", modules:[], groups:[], alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, isMapTool:true}
+  campo:{label:"FINCA", icon:ICON_FINCA, modules:CAMPO_MODULES, groups:CAMPO_GROUPS, alertDays:ALERT_DAYS, hasHistorial:true, hasAgromapa:true, hasDiag:true},
+  primario:{label:"PROCESAMIENTO PRIMARIO", icon:ICON_PRIMARIO, modules:PRIMARIO_MODULES, groups:PRIMARIO_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
+  transformacion:{label:"TRANSFORMACIÓN", icon:ICON_TRANSFORM, modules:TRANSFORM_MODULES, groups:TRANSFORM_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false},
+  agritec:{label:"AGRITEC", icon:ICON_AGRITEC, modules:AGRITEC_MODULES, groups:AGRITEC_GROUPS, alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, hasGps:true},
+  agriquest:{label:"AGRIQUEST", icon:ICON_AGRIQUEST, modules:[], groups:[], alertDays:{}, hasHistorial:false, hasAgromapa:false, hasDiag:false, isMapTool:true}
 };
 const AREA_ORDER = ["campo","primario","transformacion","agritec","agriquest"];
 </script>
@@ -812,7 +818,7 @@ function renderPredioBar(){
 
 function renderAreaBar(){
   const bar = document.getElementById("areaBar");
-  bar.innerHTML = AREA_ORDER.map(a=>`<button class="area-btn ${a===currentArea?"active":""}" data-a="${a}">${AREAS[a].icon||""} ${AREAS[a].label}</button>`).join("");
+  bar.innerHTML = AREA_ORDER.map(a=>`<button class="area-btn ${a===currentArea?"active":""}" data-a="${a}" style="display:inline-flex; align-items:center; gap:6px;"><span style="display:inline-flex;">${AREAS[a].icon||""}</span> ${AREAS[a].label}</button>`).join("");
   bar.querySelectorAll("button[data-a]").forEach(btn=>{
     btn.onclick = ()=>{ currentArea = btn.dataset.a; currentModuleId="inicio"; renderAll(); };
   });
@@ -847,6 +853,7 @@ function renderNav(){
   if(currentArea==="transformacion") docsLabel = "DOCUMENTOS Y RECONOCIMIENTOS";
   tools.push(["documentos",docsLabel]);
   tools.push(["historial_reg","HISTORIAL DE REGISTROS"]);
+  if(currentArea==="agritec") tools.push(["fotos_agritec","MIS FOTOS"]);
   if(area.hasHistorial) tools.push(["historial_campo","HISTORIAL DE CAMPO (POR AÑOS)"]);
   tools.push(["config","CONFIGURACIÓN"]);
   tools.forEach(([id,label])=>{
@@ -868,6 +875,7 @@ function renderAll(){
   else if(currentModuleId==="agromapa") renderAgromapa(main);
   else if(currentModuleId==="documentos") renderDocumentos(main);
   else if(currentModuleId==="historial_reg") renderHistorialRegistros(main);
+  else if(currentModuleId==="fotos_agritec") renderFotosAgritec(main);
   else if(currentModuleId==="historial_campo") renderHistorialCampo(main);
   else if(currentModuleId==="config") renderConfig(main);
   else renderModuleView(main, currentModuleId);
@@ -959,6 +967,7 @@ function renderModuleView(main, moduleId){
       <div><h2>${m.name}</h2><p>${m.desc}</p></div>
       <div class="toolbar">
         <button id="btnExportExcel">Excel</button>
+        <button id="btnShareExcel">Compartir</button>
         <button class="primary" id="btnNewRecord">+ Nuevo registro</button>
       </div>
     </div>
@@ -966,7 +975,8 @@ function renderModuleView(main, moduleId){
     <div id="tableArea"></div>`;
   document.getElementById("searchBox").oninput = (e)=>{ currentFilterText=e.target.value; renderTable(moduleId, fields); };
   document.getElementById("btnNewRecord").onclick = ()=> openModal(moduleId, null);
-  document.getElementById("btnExportExcel").onclick = ()=> exportModuleExcel(moduleId);
+  document.getElementById("btnExportExcel").onclick = ()=> exportModuleExcel(moduleId, false);
+  document.getElementById("btnShareExcel").onclick = ()=> exportModuleExcel(moduleId, true);
   renderTable(moduleId, fields);
 }
 
@@ -1009,7 +1019,7 @@ function renderTable(moduleId, fields){
 }
 
 /* ---- Exportar Excel (con ancho de columna automático) ---- */
-function exportModuleExcel(moduleId){
+async function exportModuleExcel(moduleId, modoCompartir){
   const fields = getFields(moduleId);
   const records = getRecords(moduleId);
   const modName = AREAS[currentArea].modules.find(x=>x.id===moduleId).name;
@@ -1026,7 +1036,20 @@ function exportModuleExcel(moduleId){
   ws['!cols'] = fields.map(f=>({wch: Math.max(f.l.length+2, 16)}));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, modName.slice(0,31));
-  XLSX.writeFile(wb, `${getCurrentPredio()}_${modName}.xlsx`);
+  const filename = `${getCurrentPredio()}_${modName}.xlsx`;
+
+  if(modoCompartir && navigator.canShare){
+    try{
+      const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
+      const file = new File([buf], filename, {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({files:[file], title:filename});
+        return;
+      }
+    }catch(e){ /* si falla, sigue con descarga normal abajo */ }
+  }
+  XLSX.writeFile(wb, filename);
+  alert("Excel descargado. Búscalo en la carpeta 'Descargas' de tu celular si no ves un aviso.");
 }
 
 /* ---- Exportar PDF (tabla simple con jsPDF) ---- */
@@ -1432,6 +1455,26 @@ function renderDocumentos(main){
 }
 
 /* ================= Historial de registros (cronológico, dentro del área actual) ================= */
+function renderFotosAgritec(main){
+  const regs = getRecords("at_visita").slice().sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+  const conFoto = regs.filter(r=>r.foto);
+  const fechasUnicas = [...new Set(regs.map(r=>r.fecha).filter(Boolean))];
+  main.innerHTML = `
+    <div class="module-head"><div><h2>Mis fotos — AgriTec</h2><p>Revisa tus evidencias fotográficas por día para saber si te falta reportar alguna visita.</p></div></div>
+    <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+      <div class="card" style="flex:1; min-width:140px;"><b style="font-size:22px;">${fechasUnicas.length}</b><div>Días con al menos 1 registro</div></div>
+      <div class="card" style="flex:1; min-width:140px;"><b style="font-size:22px;">${conFoto.length}</b><div>Fotos guardadas en total</div></div>
+      <div class="card" style="flex:1; min-width:140px;"><b style="font-size:22px;">${regs.length - conFoto.length}</b><div>Visitas sin foto todavía</div></div>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:10px;">
+      ${conFoto.map(r=>`
+        <div class="card" style="padding:6px;">
+          <img src="${r.foto}" style="width:100%; height:110px; object-fit:cover; border-radius:6px;">
+          <div style="font-size:11px; margin-top:4px;"><b>${r.fecha||"-"}</b><br>${(r.agricultor||"Sin agricultor").slice(0,20)}</div>
+        </div>`).join("") || `<p style="grid-column:1/-1;color:var(--gray-500);">Aún no has subido fotos en tus visitas.</p>`}
+    </div>`;
+}
+
 function renderHistorialRegistros(main){
   let all = [];
   AREAS[currentArea].modules.forEach(m=>{
