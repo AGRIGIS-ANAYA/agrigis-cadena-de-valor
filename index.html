@@ -601,6 +601,7 @@ async function iniciarSesionUI(){
   document.getElementById("appScreen").style.display = "none";
   await syncPullAll();
   await pullGlobalFieldOverrides();
+  await pullSettings();
   const perfil = await getCloudProfile();
   if(perfil && perfil.predio){
     currentUserName = perfil.nombre || "";
@@ -696,6 +697,15 @@ async function pullGlobalFieldOverrides(){
 }
 function getInstitucionesList(){
   try{ return JSON.parse(localStorage.getItem("agrigis_instituciones_list")||"[]"); }catch(e){ return []; }
+}
+async function pullSettings(){
+  try{
+    const { data } = await sb.from("agrigis_settings").select("*").eq("id",1).maybeSingle();
+    if(data) localStorage.setItem("agrigis_settings", JSON.stringify(data));
+  }catch(e){}
+}
+function getSettings(){
+  try{ return JSON.parse(localStorage.getItem("agrigis_settings")||"{}"); }catch(e){ return {}; }
 }
 // Funciones heredadas (ya no se usan para mostrar campos, evitan errores en restauraciones antiguas de JSON)
 function setFields(moduleId, fields){ localStorage.setItem(pKey(currentArea+"_fields_"+moduleId), JSON.stringify(fields)); }
@@ -968,6 +978,7 @@ function renderModuleView(main, moduleId){
       <div class="toolbar">
         <button id="btnExportExcel">Excel</button>
         <button id="btnShareExcel">Compartir</button>
+        ${moduleId==="plagas"?'<button id="btnConsultarAgronomos" style="background:#25D366;color:#fff;border:none;">📷 Consultar a agrónomos</button>':""}
         <button class="primary" id="btnNewRecord">+ Nuevo registro</button>
       </div>
     </div>
@@ -977,6 +988,25 @@ function renderModuleView(main, moduleId){
   document.getElementById("btnNewRecord").onclick = ()=> openModal(moduleId, null);
   document.getElementById("btnExportExcel").onclick = ()=> exportModuleExcel(moduleId, false);
   document.getElementById("btnShareExcel").onclick = ()=> exportModuleExcel(moduleId, true);
+  if(moduleId==="plagas"){
+    document.getElementById("btnConsultarAgronomos").onclick = async ()=>{
+      const regs = getRecords("plagas").filter(r=>r.foto);
+      if(regs.length===0){ alert("Primero registra una plaga con foto para poder consultarla."); return; }
+      const ultimo = regs[regs.length-1];
+      const texto = `Consulta plaga/enfermedad — Cultivo: ${ultimo.cultivo||"-"}, Sector: ${ultimo.sector||"-"}, Nivel de daño: ${ultimo.nivel_dano||"-"}. ¿Qué me recomiendan (orgánico/agroecológico)?`;
+      try{
+        const blob = await (await fetch(ultimo.foto)).blob();
+        const file = new File([blob], "plaga.jpg", {type:"image/jpeg"});
+        if(navigator.canShare && navigator.canShare({files:[file]})){
+          await navigator.share({files:[file], text:texto});
+          return;
+        }
+      }catch(e){}
+      const s = getSettings();
+      if(s.whatsapp_grupo_agronomos) window.open(s.whatsapp_grupo_agronomos, "_blank");
+      else alert("El administrador aún no configuró el grupo de agrónomos. Comparte la foto manualmente mientras tanto.");
+    };
+  }
   renderTable(moduleId, fields);
 }
 
@@ -1151,6 +1181,7 @@ let editingRecordId = null;
 function openModal(moduleId, recordId, prefill){
   const vb0=document.querySelector(".voice-btn"); if(vb0) vb0.style.display="none";
   const hb0=document.getElementById("voiceHelpBtn"); if(hb0) hb0.style.display="none";
+  const wb0=document.getElementById("waBtn"); if(wb0) wb0.style.display="none";
   const m = AREAS[currentArea].modules.find(x=>x.id===moduleId);
   const fields = getFields(moduleId);
   editingRecordId = recordId || null;
@@ -1314,7 +1345,7 @@ function openModal(moduleId, recordId, prefill){
     } else { finishSave(); }
   };
 }
-function closeModal(){ document.getElementById("modalArea").innerHTML=""; editingRecordId=null; const vb=document.querySelector(".voice-btn"); if(vb) vb.style.display="block"; const hb=document.getElementById("voiceHelpBtn"); if(hb) hb.style.display="block"; }
+function closeModal(){ document.getElementById("modalArea").innerHTML=""; editingRecordId=null; const vb=document.querySelector(".voice-btn"); if(vb) vb.style.display="block"; const hb=document.getElementById("voiceHelpBtn"); if(hb) hb.style.display="block"; const wb=document.getElementById("waBtn"); if(wb) wb.style.display="flex"; }
 
 /* ================= Configurar campos ================= */
 function openFieldConfig(moduleId){
@@ -1797,6 +1828,23 @@ function showVoiceGuide(){
   document.body.appendChild(btn);
 })();
 
+(function addWhatsAppButton(){
+  const btn = document.createElement("button");
+  btn.id = "waBtn";
+  btn.innerHTML = `<svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.38 5.07L2 22l5.07-1.33A9.94 9.94 0 0 0 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm5.2 14.2c-.22.62-1.28 1.18-1.76 1.2-.46.03-.94.2-3.15-.66-2.66-1.06-4.36-3.77-4.5-3.95-.13-.18-1.08-1.44-1.08-2.75 0-1.3.68-1.95.93-2.2.24-.26.53-.32.7-.32.18 0 .35 0 .5.01.16.01.38-.06.6.46.22.53.75 1.83.82 1.96.07.13.11.29.02.47-.09.18-.14.29-.27.45-.13.15-.28.34-.4.46-.13.13-.27.27-.12.53.16.26.7 1.16 1.5 1.87 1.04.92 1.9 1.21 2.16 1.35.26.13.42.11.57-.07.16-.18.66-.77.84-1.03.18-.26.35-.22.6-.13.24.09 1.55.73 1.82.87.26.13.44.2.5.31.06.12.06.66-.16 1.28z"/></svg>`;
+  btn.title = "Contactar soporte por WhatsApp";
+  btn.style.cssText = "position:fixed; bottom:88px; right:22px; width:48px; height:48px; border-radius:50%; z-index:90; background:#25D366; border:none; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 10px rgba(0,0,0,.3);";
+  btn.onclick = ()=>{
+    const s = getSettings();
+    if(s.whatsapp_soporte){
+      window.open(`https://wa.me/${s.whatsapp_soporte.replace(/\D/g,"")}`, "_blank");
+    } else {
+      alert("El administrador aún no configuró un número de WhatsApp de soporte.");
+    }
+  };
+  document.body.appendChild(btn);
+})();
+
 /* ================= AGRIQUEST — mapa, dibujo de área, waypoints y clima ================= */
 function getWaypoints(){ return JSON.parse(localStorage.getItem(pKey("aq_waypoints"))||"[]"); }
 function setWaypoints(list){ localStorage.setItem(pKey("aq_waypoints"), JSON.stringify(list)); }
@@ -1830,9 +1878,14 @@ function renderAgriQuest(main){
     <div class="aq-toolbar">
       <button id="btnAqLocate">Centrar en mi ubicación</button>
       <button id="btnAqDraw">Dibujar área</button>
-      <button id="btnAqWaypoint">Guardar punto de interés</button>
+      <button id="btnAqWaypoint">Guardar punto de interés (mi ubicación)</button>
+      <button id="btnAqWaypointCentro">Guardar punto de interés (mover mapa)</button>
     </div>
-    <div id="aqMap"></div>
+    <div style="position:relative;">
+      <div id="aqMap"></div>
+      <div id="aqCenterPin" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-100%); pointer-events:none; z-index:400; font-size:34px;">📍</div>
+    </div>
+    <p style="font-size:11px;color:var(--gray-500);margin-top:4px;">Mueve el mapa arrastrándolo — el pin 📍 queda siempre en el centro. Usa "Guardar punto (mover mapa)" para marcar cualquier lugar sin depender de tu GPS actual.</p>
     <div class="card" style="margin-top:12px;">
       <b>Áreas dibujadas</b>
       <div class="aq-list" id="aqAreasList"></div>
@@ -1937,20 +1990,29 @@ document.addEventListener("click", (e)=>{
   if(e.target && e.target.id==="btnAqWaypoint"){
     if(!navigator.geolocation){ alert("Tu navegador no soporta GPS."); return; }
     navigator.geolocation.getCurrentPosition(pos=>{
-      const nombre = prompt("Nombre del punto de interés:", "Punto "+(getWaypoints().length+1));
-      if(!nombre) return;
-      const tipoOpciones = "1) Potencial productivo\n2) Potencial agroturístico\n3) Visita técnica\n4) Otro";
-      let tipoNum = prompt("Tipo de punto:\n"+tipoOpciones, "1");
-      const tipos = {"1":"Potencial productivo","2":"Potencial agroturístico","3":"Visita técnica","4":"Otro"};
-      const tipo = tipos[tipoNum] || "Otro";
-      const list = getWaypoints();
-      list.push({nombre, tipo, lat:pos.coords.latitude, lng:pos.coords.longitude, fecha: todayISO()});
-      setWaypoints(list);
-      renderAqLists();
-      drawSavedWaypoints();
+      guardarWaypointEnCoords(pos.coords.latitude, pos.coords.longitude);
     }, err=> alert("No se pudo obtener tu ubicación: "+err.message));
   }
+  if(e.target && e.target.id==="btnAqWaypointCentro"){
+    if(!aqMap){ alert("Espera a que cargue el mapa."); return; }
+    const c = aqMap.getCenter();
+    guardarWaypointEnCoords(c.lat, c.lng);
+  }
 });
+
+function guardarWaypointEnCoords(lat, lng){
+  const nombre = prompt("Nombre del punto de interés:", "Punto "+(getWaypoints().length+1));
+  if(!nombre) return;
+  const tipoOpciones = "1) Potencial productivo\n2) Potencial agroturístico\n3) Visita técnica\n4) Otro";
+  let tipoNum = prompt("Tipo de punto:\n"+tipoOpciones, "1");
+  const tipos = {"1":"Potencial productivo","2":"Potencial agroturístico","3":"Visita técnica","4":"Otro"};
+  const tipo = tipos[tipoNum] || "Otro";
+  const list = getWaypoints();
+  list.push({nombre, tipo, lat, lng, fecha: todayISO()});
+  setWaypoints(list);
+  renderAqLists();
+  drawSavedWaypoints();
+}
 
 function drawSavedAreas(){
   if(!aqMap) return;
@@ -1971,7 +2033,7 @@ function renderAqLists(){
   if(aList){
     const areas = getAreas();
     aList.innerHTML = areas.length===0 ? '<p style="font-size:12.5px; color:var(--gray-500);">Ninguna todavía.</p>' :
-      areas.map((a,i)=>`<div class="cfg-row"><span>${a.nombre} — ${a.ha} ha (${a.fecha})${a.proyecto?" · <b>"+a.proyecto+"</b>":""}${a.institucion?" · "+a.institucion:""}</span><button data-i="${i}" class="danger" data-t="area">Borrar</button></div>`).join("");
+      areas.map((a,i)=>`<div class="cfg-row"><span>${a.nombre} — ${a.ha} ha (${a.fecha})${a.proyecto?" · <b>"+a.proyecto+"</b>":""}${a.institucion?" · "+a.institucion:""}</span><button data-i="${i}" class="ghost-light" data-t="area-edit" style="margin-right:6px;">Editar</button><button data-i="${i}" class="danger" data-t="area">Borrar</button></div>`).join("");
   }
   if(wList){
     const wps = getWaypoints();
@@ -1980,6 +2042,19 @@ function renderAqLists(){
   }
   document.querySelectorAll('button[data-t="area"]').forEach(btn=>{
     btn.onclick = ()=>{ const l=getAreas(); l.splice(parseInt(btn.dataset.i),1); setAreasAQ(l); renderAqLists(); initAqMap(); };
+  });
+  document.querySelectorAll('button[data-t="area-edit"]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const l = getAreas();
+      const idx = parseInt(btn.dataset.i);
+      const area = l[idx];
+      if(!confirm(`Vas a volver a dibujar "${area.nombre}". Se borrará la versión actual y podrás trazarla de nuevo. ¿Continuar?`)) return;
+      l.splice(idx,1);
+      setAreasAQ(l);
+      renderAqLists();
+      initAqMap();
+      alert('Ahora dale clic en "Dibujar área" y marca de nuevo los puntos de "'+area.nombre+'". Usa el mismo nombre si quieres que quede igual identificada.');
+    };
   });
   document.querySelectorAll('button[data-t="wp"]').forEach(btn=>{
     btn.onclick = ()=>{ const l=getWaypoints(); l.splice(parseInt(btn.dataset.i),1); setWaypoints(l); renderAqLists(); drawSavedWaypoints(); };
