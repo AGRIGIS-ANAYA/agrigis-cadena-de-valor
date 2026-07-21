@@ -1271,7 +1271,7 @@ function openModal(moduleId, recordId, prefill){
       const reader = new FileReader();
       reader.onload = (ev)=>{
         const img = new Image();
-        img.onload = ()=>{
+        img.onload = async ()=>{
           const maxDim = 1280;
           let w=img.width, h=img.height;
           if(w>maxDim || h>maxDim){ const ratio=Math.min(maxDim/w, maxDim/h); w=w*ratio; h=h*ratio; }
@@ -1290,7 +1290,17 @@ function openModal(moduleId, recordId, prefill){
           ctx.textBaseline = "middle";
           ctx.fillText(stamp, 8, h-barH/2);
           const finalDataUrl = canvas.toDataURL("image/jpeg", 0.8);
-          newRecord[photoInput.dataset.k] = finalDataUrl;
+          const filePath = `${slug(getCurrentPredio())}/${moduleId}/${now.getTime()}.jpg`;
+          try{
+            const blob = await (await fetch(finalDataUrl)).blob();
+            const { error: upErr } = await sb.storage.from("fotos").upload(filePath, blob, { contentType:"image/jpeg", upsert:true });
+            if(upErr) throw upErr;
+            const { data: pub } = sb.storage.from("fotos").getPublicUrl(filePath);
+            newRecord[photoInput.dataset.k] = pub.publicUrl;
+          }catch(e){
+            // Sin conexión o falló la subida: se guarda localmente como respaldo, sin perder la foto
+            newRecord[photoInput.dataset.k] = finalDataUrl;
+          }
           // también descargar una copia al dispositivo (galería/descargas)
           const dlLink = document.createElement("a");
           dlLink.href = finalDataUrl;
