@@ -989,22 +989,28 @@ function renderModuleView(main, moduleId){
   document.getElementById("btnExportExcel").onclick = ()=> exportModuleExcel(moduleId, false);
   document.getElementById("btnShareExcel").onclick = ()=> exportModuleExcel(moduleId, true);
   if(moduleId==="plagas"){
-    document.getElementById("btnConsultarAgronomos").onclick = async ()=>{
-      const regs = getRecords("plagas").filter(r=>r.foto);
-      if(regs.length===0){ alert("Primero registra una plaga con foto para poder consultarla."); return; }
-      const ultimo = regs[regs.length-1];
-      const texto = `Consulta plaga/enfermedad — Cultivo: ${ultimo.cultivo||"-"}, Sector: ${ultimo.sector||"-"}, Nivel de daño: ${ultimo.nivel_dano||"-"}. ¿Qué me recomiendan (orgánico/agroecológico)?`;
-      try{
-        const blob = await (await fetch(ultimo.foto)).blob();
-        const file = new File([blob], "plaga.jpg", {type:"image/jpeg"});
-        if(navigator.canShare && navigator.canShare({files:[file]})){
-          await navigator.share({files:[file], text:texto});
-          return;
-        }
-      }catch(e){}
-      const s = getSettings();
-      if(s.whatsapp_grupo_agronomos) window.open(s.whatsapp_grupo_agronomos, "_blank");
-      else alert("El administrador aún no configuró el grupo de agrónomos. Comparte la foto manualmente mientras tanto.");
+    document.getElementById("btnConsultarAgronomos").onclick = ()=>{
+      const inp = document.createElement("input");
+      inp.type = "file";
+      inp.accept = "image/*";
+      inp.capture = "environment";
+      inp.onchange = async ()=>{
+        if(!inp.files[0]) return;
+        const cultivo = prompt("Cultivo (ej. CACAO):", "") || "";
+        const sector = prompt("Sector / código:", "") || "";
+        const texto = `Consulta plaga/enfermedad — Cultivo: ${cultivo||"-"}, Sector: ${sector||"-"}. ¿Qué me recomiendan (orgánico/agroecológico)?`;
+        const file = new File([inp.files[0]], "plaga.jpg", {type:inp.files[0].type});
+        try{
+          if(navigator.canShare && navigator.canShare({files:[file]})){
+            await navigator.share({files:[file], text:texto});
+            return;
+          }
+        }catch(e){}
+        const s = getSettings();
+        if(s.whatsapp_grupo_agronomos) window.open(s.whatsapp_grupo_agronomos, "_blank");
+        else alert("El administrador aún no configuró el grupo de agrónomos. Comparte la foto manualmente mientras tanto.");
+      };
+      inp.click();
     };
   }
   renderTable(moduleId, fields);
@@ -1851,6 +1857,77 @@ function setWaypoints(list){ localStorage.setItem(pKey("aq_waypoints"), JSON.str
 function getAreas(){ return JSON.parse(localStorage.getItem(pKey("aq_areas"))||"[]"); }
 function setAreasAQ(list){ localStorage.setItem(pKey("aq_areas"), JSON.stringify(list)); }
 
+let aqEditingIndex = null, aqEditMarkers = [], aqEditLayer = null;
+
+function iniciarEdicionPoligono(idx){
+  const areas = getAreas();
+  const area = areas[idx];
+  if(!area || !area.puntos || area.puntos.length<3){ alert("Esta área no tiene puntos guardados para editar."); return; }
+  aqEditingIndex = idx;
+  // Limpiar cualquier edición previa
+  aqEditMarkers.forEach(m=>aqMap.removeLayer(m));
+  aqEditMarkers = [];
+  if(aqEditLayer){ aqMap.removeLayer(aqEditLayer); aqEditLayer=null; }
+
+  aqEditLayer = L.polygon(area.puntos, {color:"#c0392b", weight:3, dashArray:"6,4"}).addTo(aqMap);
+  aqMap.fitBounds(aqEditLayer.getBounds(), {padding:[30,30]});
+
+  area.puntos.forEach((p, i)=>{
+    const marker = L.marker(p, {draggable:true, icon: L.divIcon({className:"", html:'<div style="width:18px;height:18px;background:#c0392b;border:3px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>', iconSize:[18,18], iconAnchor:[9,9]})}).addTo(aqMap);
+    marker.on("drag", ()=>{
+      const nuevosPuntos = aqEditMarkers.map(m=>[m.getLatLng().lat, m.getLatLng().lng]);
+      aqEditLayer.setLatLngs(nuevosPuntos);
+    });
+    aqEditMarkers.push(marker);
+  });
+
+  mostrarBarraEdicionPoligono(area.nombre);
+}
+
+function mostrarBarraEdicionPoligono(nombre){
+  let barra = document.getElementById("aqEditBar");
+  if(!barra){
+    barra = document.createElement("div");
+    barra.id = "aqEditBar";
+    barra.style.cssText = "position:sticky; top:0; z-index:50; background:#c0392b; color:#fff; padding:10px; border-radius:8px; margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;";
+    const mapEl = document.getElementById("aqMap");
+    mapEl.parentNode.insertBefore(barra, mapEl);
+  }
+  barra.innerHTML = `<span style="flex:1;">✏️ Editando "${nombre}" — arrastra los puntos rojos para corregir las esquinas</span>
+    <button id="btnGuardarEdicionPoligono" style="background:#fff;color:#c0392b;border:none;padding:6px 12px;border-radius:6px;font-weight:700;">Guardar cambios</button>
+    <button id="btnCancelarEdicionPoligono" style="background:transparent;color:#fff;border:1px solid #fff;padding:6px 12px;border-radius:6px;">Cancelar</button>`;
+  document.getElementById("btnGuardarEdicionPoligono").onclick = guardarEdicionPoligono;
+  document.getElementById("btnCancelarEdicionPoligono").onclick = cancelarEdicionPoligono;
+}
+
+function guardarEdicionPoligono(){
+  const nuevosPuntos = aqEditMarkers.map(m=>[m.getLatLng().lat, m.getLatLng().lng]);
+  const ha = calcPolygonHa(nuevosPuntos);
+  const centroLat = nuevosPuntos.reduce((s,p)=>s+p[0],0)/nuevosPuntos.length;
+  const centroLng = nuevosPuntos.reduce((s,p)=>s+p[1],0)/nuevosPuntos.length;
+  const areas = getAreas();
+  areas[aqEditingIndex].puntos = nuevosPuntos;
+  areas[aqEditingIndex].ha = ha.toFixed(2);
+  areas[aqEditingIndex].lat = centroLat.toFixed(6);
+  areas[aqEditingIndex].lng = centroLng.toFixed(6);
+  setAreasAQ(areas);
+  finalizarEdicionPoligono();
+  renderAqLists();
+  alert("Área actualizada: "+ha.toFixed(2)+" ha");
+}
+
+function cancelarEdicionPoligono(){ finalizarEdicionPoligono(); }
+
+function finalizarEdicionPoligono(){
+  aqEditMarkers.forEach(m=>aqMap.removeLayer(m));
+  aqEditMarkers = [];
+  if(aqEditLayer){ aqMap.removeLayer(aqEditLayer); aqEditLayer=null; }
+  const barra = document.getElementById("aqEditBar");
+  if(barra) barra.remove();
+  aqEditingIndex = null;
+  drawSavedAreas();
+}
+
 function calcPolygonHa(latlngs){
   if(latlngs.length<3) return 0;
   const R = 6371000;
@@ -1878,14 +1955,11 @@ function renderAgriQuest(main){
     <div class="aq-toolbar">
       <button id="btnAqLocate">Centrar en mi ubicación</button>
       <button id="btnAqDraw">Dibujar área</button>
-      <button id="btnAqWaypoint">Guardar punto de interés (mi ubicación)</button>
-      <button id="btnAqWaypointCentro">Guardar punto de interés (mover mapa)</button>
+      <button id="btnAqAddPointGps" style="display:none;">📍 Agregar esquina aquí (GPS)</button>
+      <button id="btnAqWaypoint">Guardar punto de interés</button>
     </div>
-    <div style="position:relative;">
-      <div id="aqMap"></div>
-      <div id="aqCenterPin" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-100%); pointer-events:none; z-index:400; font-size:34px;">📍</div>
-    </div>
-    <p style="font-size:11px;color:var(--gray-500);margin-top:4px;">Mueve el mapa arrastrándolo — el pin 📍 queda siempre en el centro. Usa "Guardar punto (mover mapa)" para marcar cualquier lugar sin depender de tu GPS actual.</p>
+    <div id="aqMap"></div>
+    <p id="aqDrawHint" style="font-size:11px;color:var(--gray-500);margin-top:4px; display:none;">Modo dibujo activo: toca el mapa para marcar una esquina, o usa "Agregar esquina aquí (GPS)" si estás parado en el lugar exacto. Cuando termines, toca "Dibujar área" de nuevo para cerrar el polígono.</p>
     <div class="card" style="margin-top:12px;">
       <b>Áreas dibujadas</b>
       <div class="aq-list" id="aqAreasList"></div>
@@ -1944,9 +2018,13 @@ document.addEventListener("click", (e)=>{
     if(!aqDrawing){
       aqDrawing = true; aqDrawPoints=[];
       e.target.textContent = "Terminar y calcular área";
+      document.getElementById("btnAqAddPointGps").style.display="inline-block";
+      document.getElementById("aqDrawHint").style.display="block";
     } else {
       aqDrawing = false;
       e.target.textContent = "Dibujar área";
+      document.getElementById("btnAqAddPointGps").style.display="none";
+      document.getElementById("aqDrawHint").style.display="none";
       if(aqDrawPoints.length>=3){
         const ha = calcPolygonHa(aqDrawPoints);
         const nombre = prompt("Nombre para esta área (ej. Sector nuevo):", "Área "+(getAreas().length+1));
@@ -1987,16 +2065,22 @@ document.addEventListener("click", (e)=>{
       }, err=> alert("No se pudo obtener tu ubicación: "+err.message));
     }
   }
+  if(e.target && e.target.id==="btnAqAddPointGps"){
+    if(!navigator.geolocation){ alert("Tu navegador no soporta GPS."); return; }
+    e.target.textContent = "Ubicando...";
+    navigator.geolocation.getCurrentPosition(pos=>{
+      e.target.textContent = "📍 Agregar esquina aquí (GPS)";
+      aqDrawPoints.push([pos.coords.latitude, pos.coords.longitude]);
+      if(aqDrawLayer) aqMap.removeLayer(aqDrawLayer);
+      aqDrawLayer = L.polygon(aqDrawPoints, {color:"#3a7247"}).addTo(aqMap);
+      aqMap.panTo([pos.coords.latitude, pos.coords.longitude]);
+    }, err=>{ e.target.textContent = "📍 Agregar esquina aquí (GPS)"; alert("No se pudo obtener tu ubicación: "+err.message); });
+  }
   if(e.target && e.target.id==="btnAqWaypoint"){
     if(!navigator.geolocation){ alert("Tu navegador no soporta GPS."); return; }
     navigator.geolocation.getCurrentPosition(pos=>{
       guardarWaypointEnCoords(pos.coords.latitude, pos.coords.longitude);
     }, err=> alert("No se pudo obtener tu ubicación: "+err.message));
-  }
-  if(e.target && e.target.id==="btnAqWaypointCentro"){
-    if(!aqMap){ alert("Espera a que cargue el mapa."); return; }
-    const c = aqMap.getCenter();
-    guardarWaypointEnCoords(c.lat, c.lng);
   }
 });
 
@@ -2044,17 +2128,7 @@ function renderAqLists(){
     btn.onclick = ()=>{ const l=getAreas(); l.splice(parseInt(btn.dataset.i),1); setAreasAQ(l); renderAqLists(); initAqMap(); };
   });
   document.querySelectorAll('button[data-t="area-edit"]').forEach(btn=>{
-    btn.onclick = ()=>{
-      const l = getAreas();
-      const idx = parseInt(btn.dataset.i);
-      const area = l[idx];
-      if(!confirm(`Vas a volver a dibujar "${area.nombre}". Se borrará la versión actual y podrás trazarla de nuevo. ¿Continuar?`)) return;
-      l.splice(idx,1);
-      setAreasAQ(l);
-      renderAqLists();
-      initAqMap();
-      alert('Ahora dale clic en "Dibujar área" y marca de nuevo los puntos de "'+area.nombre+'". Usa el mismo nombre si quieres que quede igual identificada.');
-    };
+    btn.onclick = ()=>{ iniciarEdicionPoligono(parseInt(btn.dataset.i)); };
   });
   document.querySelectorAll('button[data-t="wp"]').forEach(btn=>{
     btn.onclick = ()=>{ const l=getWaypoints(); l.splice(parseInt(btn.dataset.i),1); setWaypoints(l); renderAqLists(); drawSavedWaypoints(); };
