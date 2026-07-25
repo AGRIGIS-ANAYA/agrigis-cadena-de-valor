@@ -1438,13 +1438,23 @@ function renderAgromapa(main){
     const file = e.target.files[0]; if(!file) return;
     const img2 = new Image(); const reader = new FileReader();
     reader.onload = (ev)=>{
-      img2.onload = ()=>{
+      img2.onload = async ()=>{
         const canvas = document.createElement("canvas");
-        const maxDim = 1200; let w=img2.width, h=img2.height;
+        const maxDim = 2600; let w=img2.width, h=img2.height;
         if(w>maxDim || h>maxDim){ const ratio=Math.min(maxDim/w, maxDim/h); w=w*ratio; h=h*ratio; }
         canvas.width=w; canvas.height=h;
         canvas.getContext("2d").drawImage(img2,0,0,w,h);
-        setAgromapaImg(canvas.toDataURL("image/jpeg",0.75));
+        const dataUrl = canvas.toDataURL("image/jpeg",0.92);
+        try{
+          const blob = await (await fetch(dataUrl)).blob();
+          const filePath = `${slug(getCurrentPredio())}/agromapa/${Date.now()}.jpg`;
+          const { error: upErr } = await sb.storage.from("fotos").upload(filePath, blob, { contentType:"image/jpeg", upsert:true });
+          if(upErr) throw upErr;
+          const { data: pub } = sb.storage.from("fotos").getPublicUrl(filePath);
+          setAgromapaImg(pub.publicUrl);
+        }catch(err){
+          setAgromapaImg(dataUrl); // respaldo local si falla la subida (sin conexión)
+        }
         renderAgromapa(main);
       };
       img2.src = ev.target.result;
@@ -1945,7 +1955,7 @@ function calcPolygonHa(latlngs){
   return Math.abs(area/2)/10000; // hectáreas
 }
 
-let aqMap=null, aqDrawing=false, aqDrawPoints=[], aqDrawLayer=null, aqMarkersLayer=null, aqUserMarker=null;
+let aqMap=null, aqDrawing=false, aqDrawPoints=[], aqDrawLayer=null, aqMarkersLayer=null, aqUserMarker=null, aqAreasLayer=null;
 
 function renderAgriQuest(main){
   main.innerHTML = `
@@ -1976,6 +1986,7 @@ function renderAgriQuest(main){
 
 function initAqMap(){
   if(aqMap){ aqMap.remove(); aqMap=null; }
+  aqAreasLayer = null;
   aqMap = L.map('aqMap').setView([-12.63, -73.77], 14); // VRAEM aprox, se recentra con GPS real
 
   const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
@@ -2100,8 +2111,10 @@ function guardarWaypointEnCoords(lat, lng){
 
 function drawSavedAreas(){
   if(!aqMap) return;
+  if(!aqAreasLayer){ aqAreasLayer = L.layerGroup().addTo(aqMap); }
+  aqAreasLayer.clearLayers();
   getAreas().forEach(a=>{
-    L.polygon(a.puntos, {color:"#3a7247"}).addTo(aqMap).bindPopup(`${a.nombre} — ${a.ha} ha`);
+    L.polygon(a.puntos, {color:"#3a7247"}).addTo(aqAreasLayer).bindPopup(`${a.nombre} — ${a.ha} ha`);
   });
 }
 function drawSavedWaypoints(){

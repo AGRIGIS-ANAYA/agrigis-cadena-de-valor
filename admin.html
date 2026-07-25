@@ -6,6 +6,8 @@
 <title>AGRIGIS · Panel de Administrador</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   :root{
     --green-700:#1f5c3f; --green-600:#2a7a53; --green-500:#3a9a6a;
@@ -653,6 +655,19 @@ function renderAgriquest(container){
       <div class="stat-card"><div class="num">${wpFlat.length}</div><div class="lbl">Puntos de interés guardados</div></div>
     </div>
     <section>
+      <h3>Mapa general — todas las parcelas y puntos</h3>
+      <p style="font-size:12px;color:var(--gray-500);">Vista de todos los predios/técnicos juntos, independiente de la tabla de registros.</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+        <select id="aqFiltroInst"><option value="">Todas las instituciones</option></select>
+        <select id="aqFiltroTecnico"><option value="">Todos los técnicos/predios</option></select>
+        <input type="date" id="aqFiltroDesde" title="Desde">
+        <input type="date" id="aqFiltroHasta" title="Hasta">
+        <button class="btn-mini" id="btnAqFiltrar">Filtrar</button>
+        <button class="btn-mini" id="btnAqLimpiarFiltro">Limpiar</button>
+      </div>
+      <div id="adminAqMap" style="width:100%; height:420px; border-radius:8px; overflow:hidden;"></div>
+    </section>
+    <section>
       <h3>Áreas / polígonos por predio o técnico <button class="btn-mini" id="btnExpAreas">Exportar Excel</button></h3>
       <div class="tbl-wrap"><table>
         <thead><tr><th>Técnico / predio</th><th>Institución</th><th>Proyecto</th><th>Nombre del área</th><th>Hectáreas</th><th>Coordenada (centro)</th><th>Fecha</th></tr></thead>
@@ -686,6 +701,67 @@ function renderAgriquest(container){
     const rows = wpFlat.map(w=>({Predio:w.predio, Nombre:w.nombre||"", Tipo:w.tipo||"", Latitud:w.lat??"", Longitud:w.lng??""}));
     exportarExcel("AgriQuest_puntos.xlsx", rows, ["Predio","Nombre","Tipo","Latitud","Longitud"]);
   };
+
+  setTimeout(()=>{
+    // Poblar los selects de filtro con valores únicos
+    const instSel = document.getElementById("aqFiltroInst");
+    const tecSel = document.getElementById("aqFiltroTecnico");
+    const instsUnicas = [...new Set(areasFlat.map(a=>a.institucion).concat(wpFlat.map(w=>w.institucion)).filter(Boolean))];
+    instsUnicas.forEach(i=> instSel.innerHTML += `<option value="${i}">${i}</option>`);
+    const tecnicosUnicos = [...new Set(allPerfiles.map(p=>p.nombre).filter(Boolean))];
+    tecnicosUnicos.forEach(t=> tecSel.innerHTML += `<option value="${t}">${t}</option>`);
+
+    function pintarMapa(){
+      const fInst = instSel.value, fTec = tecSel.value;
+      const fDesde = document.getElementById("aqFiltroDesde").value;
+      const fHasta = document.getElementById("aqFiltroHasta").value;
+
+      if(window.__adminAqMap){ window.__adminAqMap.remove(); window.__adminAqMap = null; }
+      const map = L.map('adminAqMap').setView([-12.63,-73.77], 12);
+      window.__adminAqMap = map;
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution:'Esri World Imagery', maxZoom:19
+      }).addTo(map);
+
+      const colores = ["#2a7a53","#c0392b","#2980b9","#d68910","#8e44ad","#16a085","#e74c3c"];
+      const colorPorPredio = {}; let colorIdx = 0;
+      function colorDe(predio){ if(!colorPorPredio[predio]) colorPorPredio[predio] = colores[(colorIdx++) % colores.length]; return colorPorPredio[predio]; }
+
+      function pasaFiltro(item, perf){
+        if(fInst && (item.institucion||perf?.institucion) !== fInst) return false;
+        if(fTec && (perf?.nombre||item.predio) !== fTec) return false;
+        if(fDesde && item.fecha && item.fecha < fDesde) return false;
+        if(fHasta && item.fecha && item.fecha > fHasta) return false;
+        return true;
+      }
+
+      const bounds = [];
+      areasFlat.forEach(a=>{
+        if(!a.puntos || a.puntos.length<3) return;
+        const perf = perfilPorPredio(a.predio);
+        if(!pasaFiltro(a, perf)) return;
+        const color = colorDe(a.predio);
+        const poly = L.polygon(a.puntos, {color, weight:2, fillOpacity:0.25}).addTo(map);
+        poly.bindPopup(`<b>${perf?.nombre||a.predio}</b><br>${a.nombre} — ${a.ha} ha<br>${a.institucion||perf?.institucion||"-"} · ${a.proyecto||perf?.proyecto||"-"}<br>${a.fecha||""}`);
+        a.puntos.forEach(p=>bounds.push(p));
+      });
+      wpFlat.forEach(w=>{
+        const perf = perfilPorPredio(w.predio);
+        if(!pasaFiltro(w, perf)) return;
+        const marker = L.circleMarker([w.lat,w.lng], {radius:6, color:colorDe(w.predio), fillOpacity:0.9}).addTo(map);
+        marker.bindPopup(`<b>${perf?.nombre||w.predio}</b><br>${w.nombre||"-"} ${w.tipo?"("+w.tipo+")":""}`);
+        bounds.push([w.lat,w.lng]);
+      });
+      if(bounds.length>0) map.fitBounds(bounds, {padding:[30,30]});
+    }
+
+    pintarMapa();
+    document.getElementById("btnAqFiltrar").onclick = pintarMapa;
+    document.getElementById("btnAqLimpiarFiltro").onclick = ()=>{
+      instSel.value=""; tecSel.value=""; document.getElementById("aqFiltroDesde").value=""; document.getElementById("aqFiltroHasta").value="";
+      pintarMapa();
+    };
+  }, 80);
 }
 
 /* ================= TAB: Configurar campos (global, para todos) ================= */
